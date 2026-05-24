@@ -1,0 +1,15 @@
+# Cift tirnakli satirlar phrase search olarak korunur.
+"işe iade"
+"kıdem tazminatı"
+"ihbar tazminatı"
+"fazla çalışma"
+"yıllık izin"
+"ücret alacağı"
+"haklı fesih"
+"geçerli fesih"
+fesih
+mobbing
+whatsapp
+savunma
+devamsızlık
+performans

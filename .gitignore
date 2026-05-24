@@ -1,0 +1,5 @@
+__pycache__/
+.venv/
+ingestion/data/raw/
+ingestion/data/processed/
+ingestion/state/*.txt
