@@ -22,9 +22,13 @@ TURKISH_TRANSLATION_TABLE = str.maketrans(
     }
 )
 
-SECTION_HEADING_RE = re.compile(r"(?m)^([A-ZÇĞİÖŞÜ]\)\s+[^\n:]+):")
+LETTERED_SECTION_RE = re.compile(r"(?m)^([A-ZÇĞİÖŞÜ]\)\s+[^\n:]+):")
+LABELED_SECTION_RE = re.compile(
+    r"(?m)^((?:TALEP|CEVAP|DAVA|SAVUNMA|DELİLLER VE GEREKÇE|DELİLLERİN DEĞERLENDİRİLMESİ VE GEREKÇE|GEREKÇE|KARAR|SONUÇ|HÜKÜM))\s*[:/]"
+)
 OUTCOME_RE = re.compile(
-    r"\b(BOZULMASINA|ONANMASINA|DÜZELTİLEREK ONANMASINA|REDDİNE|KABULÜNE|KISMEN KABULÜNE)\b"
+    r"\b(bozulmasına|onanmasına|düzeltilerek onanmasına|reddine|kabulüne|kısmen kabulüne)\b",
+    re.IGNORECASE,
 )
 MAHKEME_RE = re.compile(r"MAHKEMES[İI]\s*:\s*(.+)")
 
@@ -67,7 +71,16 @@ def html_to_text(html: str) -> str:
 
 def extract_trial_court(text: str) -> str:
     match = MAHKEME_RE.search(text)
-    return match.group(1).strip() if match else ""
+    if match:
+        return match.group(1).strip()
+
+    for line in text.splitlines():
+        cleaned = line.strip()
+        upper_cleaned = cleaned.upper()
+        if "MAHKEMESI" in upper_cleaned or "MAHKEMESİ" in upper_cleaned:
+            return cleaned
+
+    return ""
 
 
 def extract_title(text: str) -> str:
@@ -79,7 +92,9 @@ def extract_title(text: str) -> str:
 
 
 def extract_sections(text: str) -> dict[str, str]:
-    matches = list(SECTION_HEADING_RE.finditer(text))
+    matches = list(LETTERED_SECTION_RE.finditer(text))
+    matches.extend(LABELED_SECTION_RE.finditer(text))
+    matches.sort(key=lambda match: match.start())
     if not matches:
         return {}
 
@@ -90,7 +105,10 @@ def extract_sections(text: str) -> dict[str, str]:
         content_end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
         content = text[content_start:content_end].strip()
 
-        key_text = heading.split(")", 1)[1].strip()
+        if ")" in heading:
+            key_text = heading.split(")", 1)[1].strip()
+        else:
+            key_text = heading.strip()
         key = slugify(key_text).replace("-", "_")
         sections[key] = content
 
@@ -99,4 +117,4 @@ def extract_sections(text: str) -> dict[str, str]:
 
 def extract_outcome(text: str) -> str:
     match = OUTCOME_RE.search(text)
-    return match.group(1) if match else ""
+    return match.group(1).upper() if match else ""

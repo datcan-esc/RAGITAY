@@ -15,8 +15,13 @@ from ragitay.parser import (
     normalize_date,
     slugify,
 )
-from ragitay.paths import DECISIONS_ROOT, DISCOVERY_ROOT, DOCUMENTS_ROOT
-from ragitay.yargitay_client import DOCUMENT_URL, SearchFilters, YargitayClient
+from ragitay.paths import (
+    document_output_path,
+    locate_search_output,
+    parsed_output_path,
+    search_output_path,
+)
+from ragitay.yargitay_client import RateLimitError, SearchFilters, SourceConfig, YargitayClient
 
 
 def ensure_dir(path: Path) -> None:
@@ -28,27 +33,8 @@ def write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def append_jsonl(path: Path, payload: Any) -> None:
-    ensure_dir(path.parent)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
-
-
 def read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
-
-
-def read_jsonl(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-
-    rows: list[dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
-            if line:
-                rows.append(json.loads(line))
-    return rows
 
 
 def build_run_name(filters: SearchFilters) -> str:
@@ -68,27 +54,17 @@ def normalize_hit(hit: dict[str, Any], page_number: int) -> dict[str, Any]:
         "karar_no": hit.get("kararNo", ""),
         "karar_tarihi": normalize_date(hit.get("kararTarihi", "")),
         "aranan_kelime": hit.get("arananKelime", ""),
+        "durum": hit.get("durum", ""),
         "index": hit.get("index"),
         "sira_no": hit.get("siraNo"),
         "source_page": page_number,
     }
 
 
-def discovery_run_dir(run_name: str) -> Path:
-    return DISCOVERY_ROOT / run_name
-
-
-def discovery_manifest_path(run_name: str) -> Path:
-    return discovery_run_dir(run_name) / "manifest.json"
-
-
-def discovery_hits_path(run_name: str) -> Path:
-    return discovery_run_dir(run_name) / "hits.jsonl"
-
-
 def discover(
     filters: SearchFilters,
     *,
+    source_config: SourceConfig | None = None,
     start_page: int = 1,
     max_pages: int = 1,
     timeout: float = 30.0,
@@ -98,18 +74,9 @@ def discover(
         raise ValueError("pageSize için güvenli üst sınır 100 olarak belirlendi.")
 
     run_name = run_name or build_run_name(filters)
-    run_dir = discovery_run_dir(run_name)
-    pages_dir = run_dir / "pages"
-    hits_path = discovery_hits_path(run_name)
-
-    ensure_dir(pages_dir)
-    ensure_dir(hits_path.parent)
-    if hits_path.exists():
-        hits_path.unlink()
-    hits_path.touch()
-
-    client = YargitayClient(timeout=timeout)
-    unique_ids: list[str] = []
+    source_config = source_config or SourceConfig()
+    client = YargitayClient(source_config=source_config, timeout=timeout)
+    merged_hits: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     records_total: int | None = None
     pages_saved = 0
@@ -117,7 +84,6 @@ def discover(
     try:
         for page_number in range(start_page, max_pages + 1):
             payload = client.search(filters, page_number)
-            write_json(pages_dir / f"page-{page_number:04d}.json", payload)
             pages_saved += 1
 
             page_hits = payload.get("data", {}).get("data", [])
@@ -129,111 +95,167 @@ def discover(
 
             for hit in page_hits:
                 normalized = normalize_hit(hit, page_number)
-                append_jsonl(hits_path, normalized)
-                if normalized["id"] not in seen_ids:
-                    seen_ids.add(normalized["id"])
-                    unique_ids.append(normalized["id"])
+                if normalized["id"] in seen_ids:
+                    continue
+                seen_ids.add(normalized["id"])
+                merged_hits.append(normalized)
 
             if len(seen_ids) >= (records_total or 0):
                 break
     finally:
         del client
 
-    manifest = {
+    result = {
+        "source_name": source_config.name,
+        "base_url": source_config.base_url,
+        "search_path": source_config.search_path,
+        "document_path": source_config.document_path,
+        "document_id_param": source_config.document_id_param,
         "run_name": run_name,
         "query": filters.query,
         "filters": filters.to_payload(start_page)["data"],
         "start_page": start_page,
         "max_pages": max_pages,
         "page_size": filters.page_size,
-        "pages_saved": pages_saved,
-        "records_total": records_total,
-        "unique_document_count": len(unique_ids),
-        "document_ids": unique_ids,
+        "pages_checked": pages_saved,
+        "records_total": records_total or 0,
+        "document_count": len(merged_hits),
+        "hits": merged_hits,
         "created_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
     }
-    manifest_path = discovery_manifest_path(run_name)
-    write_json(manifest_path, manifest)
-    return manifest_path
+
+    output_path = search_output_path(source_config.name, run_name)
+    write_json(output_path, result)
+    return output_path
 
 
 def fetch_documents(
     run_name: str,
     *,
+    source_name: str = "",
     timeout: float = 30.0,
     sleep_seconds: float = 0.0,
     skip_existing: bool = False,
-) -> dict[str, int]:
-    manifest = read_json(discovery_manifest_path(run_name))
-    client = YargitayClient(timeout=timeout)
+    max_documents: int | None = None,
+) -> dict[str, Any]:
+    search_data = read_json(locate_search_output(run_name, source_name))
+    resolved_source_name = str(search_data.get("source_name", source_name or "yargitay"))
+    source_config = SourceConfig(
+        name=resolved_source_name,
+        base_url=str(search_data.get("base_url", SourceConfig().base_url)),
+        search_path=str(search_data.get("search_path", SourceConfig().search_path)),
+        document_path=str(search_data.get("document_path", SourceConfig().document_path)),
+        document_id_param=str(search_data.get("document_id_param", SourceConfig().document_id_param)),
+    )
+    client = YargitayClient(source_config=source_config, timeout=timeout)
     fetched = 0
     skipped = 0
+    newly_processed = 0
+    rate_limited = False
+    stopped_document_id = ""
+    retry_after_seconds: float | None = None
+    pending_hits = search_data.get("hits", [])
 
     try:
-        for document_id in manifest.get("document_ids", []):
-            output_path = DOCUMENTS_ROOT / f"{document_id}.json"
+        for hit in pending_hits:
+            if max_documents is not None and newly_processed >= max_documents:
+                break
+
+            document_id = hit["id"]
+            output_path = document_output_path(resolved_source_name, document_id)
+
             if skip_existing and output_path.exists():
                 skipped += 1
                 continue
 
-            payload = client.get_document(document_id)
+            try:
+                payload = client.get_document(document_id)
+            except RateLimitError as exc:
+                rate_limited = True
+                stopped_document_id = document_id
+                retry_after_seconds = exc.retry_after_seconds
+                break
+
             write_json(output_path, payload)
             fetched += 1
+            newly_processed += 1
 
             if sleep_seconds > 0:
                 time.sleep(sleep_seconds)
     finally:
         del client
 
-    result = {
-        "documents_requested": len(manifest.get("document_ids", [])),
+    remaining = 0
+    for hit in pending_hits:
+        document_id = hit["id"]
+        output_path = document_output_path(resolved_source_name, document_id)
+        if not output_path.exists():
+            remaining += 1
+
+    return {
+        "documents_requested": len(pending_hits),
         "documents_fetched": fetched,
         "documents_skipped": skipped,
+        "documents_processed_this_run": newly_processed,
+        "documents_remaining": remaining,
+        "rate_limited": rate_limited,
+        "stopped_document_id": stopped_document_id,
+        "retry_after_seconds": retry_after_seconds,
     }
-    write_json(discovery_run_dir(run_name) / "fetch-report.json", result)
-    return result
 
 
 def build_normalized_record(
     hit: dict[str, Any],
     document_payload: dict[str, Any],
     run_name: str,
+    source_config: SourceConfig,
 ) -> dict[str, Any]:
     html = document_payload.get("data", "")
     full_text = html_to_text(html)
     sections = extract_sections(full_text)
+    outcome_text = sections.get("sonuc", "") or sections.get("hukum", "") or sections.get("karar", "") or full_text
 
     return {
         "id": hit["id"],
-        "source": "karararama.yargitay.gov.tr",
-        "source_url": f"{DOCUMENT_URL}?id={hit['id']}",
+        "source": source_config.base_url,
+        "source_name": source_config.name,
+        "source_url": source_config.build_document_url(hit["id"]),
         "run_name": run_name,
         "daire": hit.get("daire", ""),
         "esas_no": hit.get("esas_no", ""),
         "karar_no": hit.get("karar_no", ""),
         "karar_tarihi": hit.get("karar_tarihi", ""),
         "aranan_kelime": hit.get("aranan_kelime", ""),
+        "durum": hit.get("durum", ""),
         "title": extract_title(full_text),
         "mahkeme": extract_trial_court(full_text),
-        "outcome": extract_outcome(sections.get("sonuc", "")),
+        "outcome": extract_outcome(outcome_text),
         "sections": sections,
         "full_text": full_text,
         "document_metadata": document_payload.get("metadata", {}),
-        "raw_document_path": str(DOCUMENTS_ROOT / f"{hit['id']}.json"),
+        "raw_document_path": str(document_output_path(source_config.name, hit["id"])),
         "parsed_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
     }
 
 
-def parse_documents(run_name: str, *, skip_existing: bool = False) -> dict[str, int]:
-    hits = read_jsonl(discovery_hits_path(run_name))
-    by_id = {hit["id"]: hit for hit in hits}
+def parse_documents(run_name: str, *, source_name: str = "", skip_existing: bool = False) -> dict[str, int]:
+    search_data = read_json(locate_search_output(run_name, source_name))
+    resolved_source_name = str(search_data.get("source_name", source_name or "yargitay"))
+    source_config = SourceConfig(
+        name=resolved_source_name,
+        base_url=str(search_data.get("base_url", SourceConfig().base_url)),
+        search_path=str(search_data.get("search_path", SourceConfig().search_path)),
+        document_path=str(search_data.get("document_path", SourceConfig().document_path)),
+        document_id_param=str(search_data.get("document_id_param", SourceConfig().document_id_param)),
+    )
     parsed = 0
     skipped = 0
     missing = 0
 
-    for document_id, hit in by_id.items():
-        raw_path = DOCUMENTS_ROOT / f"{document_id}.json"
-        output_path = DECISIONS_ROOT / f"{document_id}.json"
+    for hit in search_data.get("hits", []):
+        document_id = hit["id"]
+        raw_path = document_output_path(resolved_source_name, document_id)
+        output_path = parsed_output_path(resolved_source_name, document_id)
 
         if skip_existing and output_path.exists():
             skipped += 1
@@ -244,48 +266,55 @@ def parse_documents(run_name: str, *, skip_existing: bool = False) -> dict[str, 
             continue
 
         payload = read_json(raw_path)
-        normalized = build_normalized_record(hit, payload, run_name)
+        normalized = build_normalized_record(hit, payload, run_name, source_config)
         write_json(output_path, normalized)
         parsed += 1
 
-    result = {
-        "documents_seen": len(by_id),
+    return {
+        "documents_seen": len(search_data.get("hits", [])),
         "documents_parsed": parsed,
         "documents_skipped": skipped,
         "documents_missing_raw": missing,
     }
-    write_json(discovery_run_dir(run_name) / "parse-report.json", result)
-    return result
 
 
 def collect(
     filters: SearchFilters,
     *,
+    source_config: SourceConfig | None = None,
     start_page: int,
     max_pages: int,
     timeout: float,
     sleep_seconds: float,
     skip_existing: bool,
+    max_documents: int | None = None,
     run_name: str | None = None,
 ) -> dict[str, Any]:
-    manifest_path = discover(
+    search_path = discover(
         filters,
+        source_config=source_config,
         start_page=start_page,
         max_pages=max_pages,
         timeout=timeout,
         run_name=run_name,
     )
-    run_name = read_json(manifest_path)["run_name"]
+    run_name = read_json(search_path)["run_name"]
     fetch_report = fetch_documents(
         run_name,
+        source_name=str(read_json(search_path).get("source_name", "")),
         timeout=timeout,
         sleep_seconds=sleep_seconds,
         skip_existing=skip_existing,
+        max_documents=max_documents,
     )
-    parse_report = parse_documents(run_name, skip_existing=skip_existing)
+    parse_report = parse_documents(
+        run_name,
+        source_name=str(read_json(search_path).get("source_name", "")),
+        skip_existing=skip_existing,
+    )
     return {
         "run_name": run_name,
-        "manifest_path": str(manifest_path),
+        "search_output": str(search_path),
         "fetch_report": fetch_report,
         "parse_report": parse_report,
     }

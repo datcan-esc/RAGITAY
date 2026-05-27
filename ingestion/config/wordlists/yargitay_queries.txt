@@ -1,4 +1,4 @@
-# Is hukuku odakli cekirdek sorgular.
+# Yargitay icin daha dar, is hukuku odakli sorgular.
 # Cift tirnakli satirlar phrase search olarak korunur.
 "işe iade"
 "kıdem tazminatı"

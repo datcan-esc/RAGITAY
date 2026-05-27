@@ -1,0 +1,15 @@
+# UYAP emsal icin daha genis liste.
+# BAM ve ilk derece kararlarinda farkli uyusmazlik tiplerini yakalamak icin
+# is hukuku cekirdegi korunup birkac genel dava tipi eklendi.
+"işe iade"
+"kıdem tazminatı"
+"ihbar tazminatı"
+"fazla çalışma"
+"yıllık izin"
+"ücret alacağı"
+"mobbing"
+"sendikal tazminat"
+"iş kazası"
+"itirazın iptali"
+"alacak"
+"ticari dava"

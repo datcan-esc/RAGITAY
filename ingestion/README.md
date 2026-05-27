@@ -6,11 +6,10 @@ High-level flow:
 
 1. `discover`
    - Queries `aramadetaylist`
-   - Saves page responses
-   - Builds a manifest and `hits.jsonl`
+   - Saves one merged search JSON
 2. `fetch`
    - Reads discovered `id` values
-   - Downloads raw documents from `getDokuman`
+   - Downloads raw documents from the configured document endpoint
 3. `parse`
    - Reads raw document JSON files
    - Produces normalized decision JSON files
@@ -21,8 +20,8 @@ Suggested command order:
 
 ```bash
 python3 ingestion/scripts/yargitay_cli.py discover --query '"işe iade"' --decision-year 2022 --max-pages 2
-python3 ingestion/scripts/yargitay_cli.py fetch --run-name ise-iade-2022
-python3 ingestion/scripts/yargitay_cli.py parse --run-name ise-iade-2022
+python3 ingestion/scripts/yargitay_cli.py fetch --run-name ise-iade-2022 --source-name yargitay
+python3 ingestion/scripts/yargitay_cli.py parse --run-name ise-iade-2022 --source-name yargitay
 ```
 
 Default batch run:
@@ -31,10 +30,35 @@ Default batch run:
 python3 ingestion/scripts/yargitay_cli.py run-wordlist
 ```
 
+Shortest usage:
+
+```bash
+python3 ingestion/scripts/yargitay_cli.py --profile yargitay
+python3 ingestion/scripts/yargitay_cli.py --profile uyap
+```
+
 This command reads:
 
 - `ingestion/config/profiles/default.json`
-- `ingestion/config/wordlists/example_queries.txt`
+- profile icinde tanimli wordlist dosyasi
+
+Available profiles:
+
+- `default.json`: Yargıtay karar arama
+- `uyap_emsal.json`: UYAP emsal arama
+
+Default wordlists:
+
+- `wordlists/yargitay_queries.txt`
+- `wordlists/uyap_queries.txt`
+
+Example UYAP run:
+
+```bash
+python3 ingestion/scripts/yargitay_cli.py run-wordlist \
+  --profile ingestion/config/profiles/uyap_emsal.json \
+  --profile-name uyap
+```
 
 And tracks completed jobs in:
 
@@ -48,20 +72,23 @@ ingestion/
   config/
     profiles/
       default.json
+      uyap_emsal.json
     wordlists/
       example_queries.txt
-  data/
-    raw/
-      discovery/
-        <run-name>/
-          pages/
-            page-0001.json
-          hits.jsonl
-          manifest.json
+  output/
+    yargitay/
+      searches/
+        <run-name>.json
       documents/
         <id>.json
-    processed/
-      decisions/
+      parsed/
+        <id>.json
+    uyap_emsal/
+      searches/
+        <run-name>.json
+      documents/
+        <id>.json
+      parsed/
         <id>.json
   scripts/
     yargitay_cli.py
