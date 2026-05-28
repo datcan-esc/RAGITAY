@@ -193,11 +193,11 @@ def fetch_documents(
             remaining += 1
 
     return {
-        "documents_requested": len(pending_hits),
-        "documents_fetched": fetched,
-        "documents_skipped": skipped,
-        "documents_processed_this_run": newly_processed,
-        "documents_remaining": remaining,
+        "total_hits": len(pending_hits),
+        "newly_fetched": fetched,
+        "already_downloaded": skipped,
+        "fetched_this_run": newly_processed,
+        "still_missing": remaining,
         "rate_limited": rate_limited,
         "stopped_document_id": stopped_document_id,
         "retry_after_seconds": retry_after_seconds,
@@ -271,10 +271,10 @@ def parse_documents(run_name: str, *, source_name: str = "", skip_existing: bool
         parsed += 1
 
     return {
-        "documents_seen": len(search_data.get("hits", [])),
-        "documents_parsed": parsed,
-        "documents_skipped": skipped,
-        "documents_missing_raw": missing,
+        "total_hits": len(search_data.get("hits", [])),
+        "newly_parsed": parsed,
+        "already_parsed": skipped,
+        "missing_raw": missing,
     }
 
 

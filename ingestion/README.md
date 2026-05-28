@@ -37,6 +37,20 @@ python3 ingestion/scripts/yargitay_cli.py --profile yargitay
 python3 ingestion/scripts/yargitay_cli.py --profile uyap
 ```
 
+Full pipeline in one command:
+
+```bash
+python3 scripts/run_pipeline.py
+```
+
+This runs, in order:
+
+1. `--profile yargitay`
+2. `--profile uyap`
+3. `import_decisions.py`
+4. `build_chunks.py`
+5. `build_embeddings.py`
+
 This command reads:
 
 - `ingestion/config/profiles/default.json`
@@ -58,6 +72,50 @@ Example UYAP run:
 python3 ingestion/scripts/yargitay_cli.py run-wordlist \
   --profile ingestion/config/profiles/uyap_emsal.json \
   --profile-name uyap
+```
+
+Import parsed kararlar into PostgreSQL:
+
+```bash
+python3 ingestion/scripts/import_decisions.py
+```
+
+Optional examples:
+
+```bash
+python3 ingestion/scripts/import_decisions.py --source-name yargitay
+python3 ingestion/scripts/import_decisions.py --source-name uyap_emsal
+python3 ingestion/scripts/import_decisions.py --limit 100 --verbose
+```
+
+Build decision chunks:
+
+```bash
+python3 ingestion/scripts/build_chunks.py
+```
+
+Optional examples:
+
+```bash
+python3 ingestion/scripts/build_chunks.py --source-name yargitay
+python3 ingestion/scripts/build_chunks.py --source-name uyap_emsal
+python3 ingestion/scripts/build_chunks.py --limit 200 --verbose
+python3 ingestion/scripts/build_chunks.py --rebuild
+```
+
+Build chunk embeddings:
+
+```bash
+python3 ingestion/scripts/build_embeddings.py
+```
+
+Optional examples:
+
+```bash
+python3 ingestion/scripts/build_embeddings.py --source-name yargitay
+python3 ingestion/scripts/build_embeddings.py --source-name uyap_emsal
+python3 ingestion/scripts/build_embeddings.py --limit 500 --batch-size 24 --verbose
+python3 ingestion/scripts/build_embeddings.py --rebuild
 ```
 
 And tracks completed jobs in:

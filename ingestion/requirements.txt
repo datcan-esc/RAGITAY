@@ -1,1 +1,5 @@
-# Initial data pipeline uses only the Python standard library.
+# Core ingestion scripts mostly use the Python standard library.
+# PostgreSQL import requires psycopg.
+psycopg[binary]>=3.2,<3.3
+pgvector>=0.3.6,<0.4
+sentence-transformers>=3.0,<4.0

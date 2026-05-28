@@ -268,6 +268,79 @@ def run_parse(args: argparse.Namespace) -> None:
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
 
+def init_run_wordlist_summary(
+    profile_name: str,
+    source_name: str,
+    profile_path: Path,
+    wordlist_path: Path,
+    years: list[str],
+    queries: list[str],
+) -> dict[str, object]:
+    return {
+        "profile_name": profile_name,
+        "source_name": source_name,
+        "profile_path": str(profile_path),
+        "wordlist_path": str(wordlist_path),
+        "years": years,
+        "query_count": len(queries),
+        "jobs_total": len(years) * len(queries),
+        "jobs_started": 0,
+        "jobs_completed": 0,
+        "jobs_skipped_done": 0,
+        "jobs_no_results": 0,
+        "jobs_partial": 0,
+        "jobs_rate_limited": 0,
+        "jobs_failed": 0,
+        "fetch": {
+            "newly_fetched": 0,
+            "already_downloaded": 0,
+            "still_missing": 0,
+        },
+        "parse": {
+            "newly_parsed": 0,
+            "already_parsed": 0,
+            "missing_raw": 0,
+        },
+    }
+
+
+def add_collect_result_to_summary(summary: dict[str, object], result: dict[str, object]) -> None:
+    fetch_summary = summary["fetch"]
+    parse_summary = summary["parse"]
+    fetch_report = result["fetch_report"]
+    parse_report = result["parse_report"]
+
+    fetch_summary["newly_fetched"] += int(fetch_report["newly_fetched"])
+    fetch_summary["already_downloaded"] += int(fetch_report["already_downloaded"])
+    fetch_summary["still_missing"] += int(fetch_report["still_missing"])
+    parse_summary["newly_parsed"] += int(parse_report["newly_parsed"])
+    parse_summary["already_parsed"] += int(parse_report["already_parsed"])
+    parse_summary["missing_raw"] += int(parse_report["missing_raw"])
+
+
+def print_run_wordlist_summary(summary: dict[str, object]) -> None:
+    print("\nOzet:")
+    print(
+        f"- tamamlanan job: {summary['jobs_completed']}"
+        f", atlanan job: {summary['jobs_skipped_done']}"
+        f", sonucsuz job: {summary['jobs_no_results']}"
+        f", kismi job: {summary['jobs_partial']}"
+        f", rate limit: {summary['jobs_rate_limited']}"
+        f", hatali job: {summary['jobs_failed']}"
+    )
+    print(
+        f"- fetch: yeni={summary['fetch']['newly_fetched']},"
+        f" zaten_var={summary['fetch']['already_downloaded']},"
+        f" eksik={summary['fetch']['still_missing']}"
+    )
+    print(
+        f"- parse: yeni={summary['parse']['newly_parsed']},"
+        f" zaten_var={summary['parse']['already_parsed']},"
+        f" ham_eksik={summary['parse']['missing_raw']}"
+    )
+    print("RUN_WORDLIST_SUMMARY::" + json.dumps(summary, ensure_ascii=False))
+
+
 def run_collect(args: argparse.Namespace) -> None:
     filters = filters_from_args(args)
     source_config = source_config_from_args(args)
@@ -295,6 +368,14 @@ def run_wordlist(args: argparse.Namespace) -> None:
     failed_jobs = read_state_lines(FAILED_JOBS_PATH)
     years = iter_years(profile)
     queries = list(iter_wordlist(wordlist_path))
+    summary = init_run_wordlist_summary(
+        profile_name,
+        source_config.name,
+        profile_path,
+        wordlist_path,
+        years,
+        queries,
+    )
 
     print(f"Profil: {profile_path}")
     print(f"Kelime listesi: {wordlist_path}")
@@ -306,11 +387,13 @@ def run_wordlist(args: argparse.Namespace) -> None:
         for query in queries:
             job_id = build_job_id(profile_name, year, query)
             if job_id in done_jobs:
+                summary["jobs_skipped_done"] += 1
                 print(f"Atlandı: {job_id}")
                 continue
 
             filters = filters_from_profile(profile, query, year)
             run_name = build_run_name(profile_name, year, query)
+            summary["jobs_started"] += 1
             print(f"Calisiyor: {job_id}")
 
             try:
@@ -326,22 +409,28 @@ def run_wordlist(args: argparse.Namespace) -> None:
                     run_name=run_name,
                 )
 
+                add_collect_result_to_summary(summary, result)
                 fetch_report = result["fetch_report"]
-                requested = fetch_report["documents_requested"]
-                remaining = fetch_report["documents_remaining"]
+                requested = fetch_report["total_hits"]
+                remaining = fetch_report["still_missing"]
 
                 if requested == 0:
+                    summary["jobs_no_results"] += 1
                     print(f"Sonuc yok: {job_id}")
                     continue
 
                 if fetch_report["rate_limited"]:
+                    summary["jobs_rate_limited"] += 1
                     print(json.dumps(result, ensure_ascii=False, indent=2))
                     print("Rate limit nedeniyle batch durduruldu. Bir süre sonra aynı komutu tekrar çalıştır.")
+                    print_run_wordlist_summary(summary)
                     return
 
                 if remaining > 0:
+                    summary["jobs_partial"] += 1
                     print(json.dumps(result, ensure_ascii=False, indent=2))
                     print("Bu job kısmi işlendi. Kaldığı yerden devam etmek için aynı komutu tekrar çalıştır.")
+                    print_run_wordlist_summary(summary)
                     return
 
                 append_state_line(DONE_JOBS_PATH, job_id)
@@ -349,8 +438,10 @@ def run_wordlist(args: argparse.Namespace) -> None:
                 if job_id in failed_jobs:
                     failed_jobs.remove(job_id)
                     write_state_lines(FAILED_JOBS_PATH, failed_jobs)
+                summary["jobs_completed"] += 1
                 print(json.dumps(result, ensure_ascii=False, indent=2))
             except Exception as exc:
+                summary["jobs_failed"] += 1
                 if job_id not in failed_jobs:
                     append_state_line(FAILED_JOBS_PATH, job_id)
                     failed_jobs.add(job_id)
@@ -359,6 +450,8 @@ def run_wordlist(args: argparse.Namespace) -> None:
             job_sleep_seconds = float(profile.get("job_sleep_seconds", 1.5))
             if job_sleep_seconds > 0:
                 time.sleep(job_sleep_seconds)
+
+    print_run_wordlist_summary(summary)
 
 
 def build_parser() -> argparse.ArgumentParser:
