@@ -118,6 +118,22 @@ python3 ingestion/scripts/build_embeddings.py --limit 500 --batch-size 24 --verb
 python3 ingestion/scripts/build_embeddings.py --rebuild
 ```
 
+Run semantic search:
+
+```bash
+python3 ingestion/scripts/semantic_search.py "iş yeri whatsapp kuralları"
+```
+
+Optional examples:
+
+```bash
+python3 ingestion/scripts/semantic_search.py "işe iade" --source-name yargitay
+python3 ingestion/scripts/semantic_search.py "kıdem tazminatı" --top-k-chunks 40 --top-decisions 8
+python3 ingestion/scripts/semantic_search.py "whatsapp fesih" --daire "9. Hukuk Dairesi" --year-from 2020
+python3 ingestion/scripts/semantic_search.py "iş yeri whatsapp kuralları" --json
+python3 ingestion/scripts/semantic_search.py "işe iade" --local-files-only
+```
+
 And tracks completed jobs in:
 
 - `ingestion/state/done_jobs.txt`

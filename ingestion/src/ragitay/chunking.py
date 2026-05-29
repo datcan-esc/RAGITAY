@@ -19,12 +19,79 @@ PREFERRED_SECTION_ORDER = [
     "sonuc",
 ]
 
+TURKISH_TRANSLATION_TABLE = str.maketrans(
+    {
+        "ç": "c",
+        "ğ": "g",
+        "ı": "i",
+        "ö": "o",
+        "ş": "s",
+        "ü": "u",
+        "Ç": "C",
+        "Ğ": "G",
+        "İ": "I",
+        "Ö": "O",
+        "Ş": "S",
+        "Ü": "U",
+    }
+)
+
+ROMAN_SECTION_RE = re.compile(r"(?m)^([IVXLC]+\.\s+[^\n]+)$")
+LOW_VALUE_PHRASES = (
+    "içtihat metni",
+    "uyuşmazlığın giderilmesi istemine dair",
+    "uyusmazligin giderilmesi istemine dair",
+)
+
 
 def normalize_chunk_text(text: str) -> str:
     cleaned = text.replace("\r\n", "\n").replace("\r", "\n")
     cleaned = re.sub(r"[ \t]+", " ", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
+
+
+def slugify_section_name(value: str) -> str:
+    normalized = value.translate(TURKISH_TRANSLATION_TABLE).lower()
+    normalized = re.sub(r"[^a-z0-9]+", "_", normalized)
+    return normalized.strip("_") or "full_text"
+
+
+def infer_sections_from_full_text(full_text: str) -> list[tuple[str, str]]:
+    normalized = normalize_chunk_text(full_text)
+    if not normalized:
+        return []
+
+    matches = list(ROMAN_SECTION_RE.finditer(normalized))
+    if not matches:
+        return []
+
+    sections: list[tuple[str, str]] = []
+    for index, match in enumerate(matches):
+        heading_line = match.group(1).strip()
+        heading_text = heading_line.split(".", 1)[1].strip()
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(normalized)
+        content = normalized[start:end].strip()
+        if not content:
+            continue
+        sections.append((slugify_section_name(heading_text), content))
+    return sections
+
+
+def is_low_value_chunk(text: str) -> bool:
+    normalized = normalize_chunk_text(text).lower()
+    if not normalized:
+        return True
+
+    alpha_count = sum(1 for char in normalized if char.isalpha())
+    if alpha_count < 60:
+        return True
+
+    if len(normalized) < 300 and any(phrase in normalized for phrase in LOW_VALUE_PHRASES):
+        return True
+
+    return False
 
 
 def ordered_sections(sections: dict[str, str]) -> list[tuple[str, str]]:
@@ -121,13 +188,25 @@ def chunk_text(
     flush()
 
     merged: list[str] = []
-    for chunk in chunks:
+    index = 0
+    while index < len(chunks):
+        chunk = chunks[index]
+        if len(chunk) < min_chunk_chars and index + 1 < len(chunks):
+            candidate = f"{chunk}\n\n{chunks[index + 1]}".strip()
+            if len(candidate) <= max_chars + overlap_chars:
+                merged.append(candidate)
+                index += 2
+                continue
+
         if merged and len(chunk) < min_chunk_chars:
             candidate = f"{merged[-1]}\n\n{chunk}".strip()
             if len(candidate) <= max_chars + overlap_chars:
                 merged[-1] = candidate
+                index += 1
                 continue
+
         merged.append(chunk)
+        index += 1
     return merged
 
 
@@ -145,7 +224,8 @@ def build_decision_chunks(
 
     section_items = ordered_sections(sections)
     if not section_items:
-        section_items = [("full_text", normalize_chunk_text(full_text))]
+        inferred = infer_sections_from_full_text(full_text)
+        section_items = inferred if inferred else [("full_text", normalize_chunk_text(full_text))]
 
     for section_name, section_text in section_items:
         if not section_text:
@@ -157,6 +237,8 @@ def build_decision_chunks(
             min_chunk_chars=min_chunk_chars,
         )
         for piece in section_chunks:
+            if is_low_value_chunk(piece):
+                continue
             chunk_index += 1
             chunks.append(
                 {

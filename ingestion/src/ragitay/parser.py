@@ -26,6 +26,7 @@ LETTERED_SECTION_RE = re.compile(r"(?m)^([A-ZÇĞİÖŞÜ]\)\s+[^\n:]+):")
 LABELED_SECTION_RE = re.compile(
     r"(?m)^((?:TALEP|CEVAP|DAVA|SAVUNMA|DELİLLER VE GEREKÇE|DELİLLERİN DEĞERLENDİRİLMESİ VE GEREKÇE|GEREKÇE|KARAR|SONUÇ|HÜKÜM))\s*[:/]"
 )
+ROMAN_SECTION_RE = re.compile(r"(?m)^([IVXLC]+\.\s+[^\n]+)$")
 OUTCOME_RE = re.compile(
     r"\b(bozulmasına|onanmasına|düzeltilerek onanmasına|reddine|kabulüne|kısmen kabulüne)\b",
     re.IGNORECASE,
@@ -94,6 +95,7 @@ def extract_title(text: str) -> str:
 def extract_sections(text: str) -> dict[str, str]:
     matches = list(LETTERED_SECTION_RE.finditer(text))
     matches.extend(LABELED_SECTION_RE.finditer(text))
+    matches.extend(ROMAN_SECTION_RE.finditer(text))
     matches.sort(key=lambda match: match.start())
     if not matches:
         return {}
@@ -107,6 +109,8 @@ def extract_sections(text: str) -> dict[str, str]:
 
         if ")" in heading:
             key_text = heading.split(")", 1)[1].strip()
+        elif "." in heading and re.match(r"^[IVXLC]+\.\s+", heading):
+            key_text = heading.split(".", 1)[1].strip()
         else:
             key_text = heading.strip()
         key = slugify(key_text).replace("-", "_")
