@@ -109,6 +109,20 @@ class SearchService:
             results=results,
         )
 
+    def get_decision_detail(self, decision_id: int) -> dict[str, object]:
+        detail = self.repository.get_decision_detail(decision_id)
+        if not detail:
+            raise SearchError(
+                message="Requested decision could not be found.",
+                code="decision_not_found",
+                status_code=404,
+            )
+
+        sections = detail.get("sections")
+        if not isinstance(sections, dict):
+            detail["sections"] = {}
+        return detail
+
     def _group_results(
         self,
         *,

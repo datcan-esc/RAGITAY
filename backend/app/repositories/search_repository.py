@@ -110,6 +110,32 @@ class SearchRepository:
                 cur.execute(sql, params)
                 return cur.fetchall()
 
+    def get_decision_detail(self, decision_id: int) -> Optional[dict[str, object]]:
+        sql = """
+        SELECT
+          id AS decision_id,
+          source_name,
+          external_id,
+          title,
+          daire,
+          esas_no,
+          karar_no,
+          karar_tarihi,
+          mahkeme,
+          outcome,
+          source_url,
+          full_text,
+          sections
+        FROM decisions
+        WHERE id = %s
+        """
+
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, [decision_id])
+                row = cur.fetchone()
+                return row if row else None
+
     @staticmethod
     def _build_filter_sql(
         *,

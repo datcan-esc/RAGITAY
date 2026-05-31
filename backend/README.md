@@ -20,6 +20,8 @@ Useful endpoints:
 
 - `GET /health`
 - `POST /api/search`
+- `POST /api/search/summary`
+- `GET /api/search/decisions/{decision_id}`
 
 Example request:
 
@@ -32,3 +34,17 @@ curl -X POST http://127.0.0.1:8000/api/search \
     "top_decisions": 5
   }'
 ```
+
+Summary provider setup:
+
+```bash
+SUMMARY_PROVIDER=gemini
+SUMMARY_MODEL_NAME=gemini-2.5-flash
+GEMINI_API_KEY=your_key
+```
+
+Supported providers:
+
+- `gemini`
+- `openai`
+- `fallback`

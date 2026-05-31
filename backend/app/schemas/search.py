@@ -67,6 +67,22 @@ class DecisionResult(BaseModel):
     passages: list[PassageResult]
 
 
+class DecisionDetailResponse(BaseModel):
+    decision_id: int
+    source_name: str
+    external_id: str
+    title: str
+    daire: str
+    esas_no: str
+    karar_no: str
+    karar_tarihi: Optional[date] = None
+    mahkeme: str
+    outcome: str
+    source_url: str
+    full_text: str
+    sections: dict[str, str]
+
+
 class SearchResponse(BaseModel):
     query: str
     query_model: str

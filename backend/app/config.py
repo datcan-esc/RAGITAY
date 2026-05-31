@@ -23,6 +23,14 @@ class Settings:
     embedding_model_name: str = "intfloat/multilingual-e5-base"
     embedding_device: str = ""
     embedding_local_files_only: bool = True
+    summary_provider: str = "fallback"
+    openai_api_key: str = ""
+    openai_base_url: str = ""
+    gemini_api_key: str = ""
+    gemini_base_url: str = "https://generativelanguage.googleapis.com"
+    summary_model_name: str = "gpt-4.1-mini"
+    summary_max_decisions: int = 5
+    summary_max_passage_chars: int = 900
     cors_allow_origins: tuple[str, ...] = ("*",)
     cors_allow_credentials: bool = False
 
@@ -63,6 +71,14 @@ def get_settings() -> Settings:
         embedding_model_name=os.getenv("EMBEDDING_MODEL_NAME", "intfloat/multilingual-e5-base").strip(),
         embedding_device=os.getenv("EMBEDDING_DEVICE", "").strip(),
         embedding_local_files_only=_as_bool(os.getenv("EMBEDDING_LOCAL_FILES_ONLY", "true"), True),
+        summary_provider=os.getenv("SUMMARY_PROVIDER", "fallback").strip().lower(),
+        openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
+        openai_base_url=os.getenv("OPENAI_BASE_URL", "").strip(),
+        gemini_api_key=os.getenv("GEMINI_API_KEY", "").strip(),
+        gemini_base_url=os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com").strip(),
+        summary_model_name=os.getenv("SUMMARY_MODEL_NAME", "gpt-4.1-mini").strip(),
+        summary_max_decisions=int(os.getenv("SUMMARY_MAX_DECISIONS", "5").strip() or "5"),
+        summary_max_passage_chars=int(os.getenv("SUMMARY_MAX_PASSAGE_CHARS", "900").strip() or "900"),
         cors_allow_origins=origins,
         cors_allow_credentials=_as_bool(os.getenv("BACKEND_CORS_ALLOW_CREDENTIALS", "false"), False),
     )

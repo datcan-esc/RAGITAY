@@ -5,6 +5,7 @@ from functools import lru_cache
 from backend.app.repositories.search_repository import SearchRepository
 from backend.app.services.embedding_service import EmbeddingService
 from backend.app.services.search_service import SearchService
+from backend.app.services.summary_service import SummaryService
 
 
 @lru_cache(maxsize=1)
@@ -23,3 +24,8 @@ def get_search_service() -> SearchService:
         embedding_service=get_embedding_service(),
         repository=get_search_repository(),
     )
+
+
+@lru_cache(maxsize=1)
+def get_summary_service() -> SummaryService:
+    return SummaryService()
