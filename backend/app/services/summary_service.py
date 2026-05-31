@@ -5,7 +5,10 @@ from typing import Any, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from openai import OpenAI
+try:
+    from openai import OpenAI
+except ImportError:  # pragma: no cover - optional dependency
+    OpenAI = None  # type: ignore[assignment]
 
 from backend.app.config import get_settings
 from backend.app.exceptions import AppError
@@ -24,8 +27,8 @@ class SummaryError(AppError):
 class SummaryService:
     def __init__(self) -> None:
         self.settings = get_settings()
-        self.openai_client: Optional[OpenAI] = None
-        if self.settings.openai_api_key:
+        self.openai_client: Optional[Any] = None
+        if self.settings.openai_api_key and OpenAI is not None:
             client_kwargs: dict[str, Any] = {"api_key": self.settings.openai_api_key}
             if self.settings.openai_base_url:
                 client_kwargs["base_url"] = self.settings.openai_base_url
