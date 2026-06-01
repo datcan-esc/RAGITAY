@@ -1,8 +1,10 @@
 "use client"
 
-import { startTransition, useEffect, useState } from "react"
+import { usePathname, useRouter } from "next/navigation"
+import { startTransition, useEffect, useRef, useState } from "react"
 
 import { ActiveFilters } from "@/components/search-demo/active-filters"
+import { AppHeader } from "@/components/search-demo/app-header"
 import { DetailPanel } from "@/components/search-demo/detail-panel"
 import { FiltersModal } from "@/components/search-demo/filters-modal"
 import { SearchHeader } from "@/components/search-demo/header"
@@ -26,7 +28,19 @@ const SOURCE_OPTIONS = [
   { id: "uyap_emsal", label: "UYAP Emsal" },
 ]
 
+type SearchControls = {
+  query: string
+  sourceNames: string[]
+  daire: string
+  yearFrom: string
+  yearTo: string
+  topDecisions: string
+}
+
 export function SearchDemo() {
+  const router = useRouter()
+  const pathname = usePathname()
+  const initialUrlAppliedRef = useRef(false)
   const [query, setQuery] = useState("")
   const [sourceNames, setSourceNames] = useState<string[]>(["yargitay"])
   const [daire, setDaire] = useState("9. Hukuk Dairesi")
@@ -52,16 +66,85 @@ export function SearchDemo() {
   const [decisionChatError, setDecisionChatError] = useState("")
   const [isDarkMode, setIsDarkMode] = useState(false)
 
-  async function runSearch(override?: Partial<{ query: string }>) {
-    const nextQuery = (override?.query ?? query).trim()
+  function buildSearchControls(
+    override?: Partial<SearchControls>
+  ): SearchControls {
+    return {
+      query: override?.query ?? query,
+      sourceNames: override?.sourceNames ?? sourceNames,
+      daire: override?.daire ?? daire,
+      yearFrom: override?.yearFrom ?? yearFrom,
+      yearTo: override?.yearTo ?? yearTo,
+      topDecisions: override?.topDecisions ?? topDecisions,
+    }
+  }
+
+  function syncUrl(nextControls: SearchControls) {
+    const params = new URLSearchParams()
+    const trimmedQuery = nextControls.query.trim()
+
+    if (trimmedQuery) {
+      params.set("q", trimmedQuery)
+    }
+    if (nextControls.sourceNames.length) {
+      params.set("sources", nextControls.sourceNames.join(","))
+    }
+    if (nextControls.daire.trim()) {
+      params.set("daire", nextControls.daire.trim())
+    }
+    if (nextControls.yearFrom) {
+      params.set("from", nextControls.yearFrom)
+    }
+    if (nextControls.yearTo) {
+      params.set("to", nextControls.yearTo)
+    }
+    if (nextControls.topDecisions) {
+      params.set("top", nextControls.topDecisions)
+    }
+
+    const nextUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname
+    router.push(nextUrl, { scroll: false })
+  }
+
+  function resetSearchState() {
+    setQuery("")
+    setSourceNames(["yargitay"])
+    setDaire("9. Hukuk Dairesi")
+    setYearFrom("2020")
+    setYearTo("2026")
+    setTopDecisions("5")
+    setHasSearched(false)
+    setData(null)
+    setSummary(null)
+    setError("")
+    setActiveDecisionId(null)
+    setDetail(null)
+    setDetailError("")
+    setDecisionSummary(null)
+    setDecisionQuestion("")
+    setDecisionAnswer(null)
+    setDecisionChatError("")
+    router.push(pathname, { scroll: false })
+  }
+
+  async function runSearch(override?: Partial<SearchControls>) {
+    const nextControls = buildSearchControls(override)
+    const nextQuery = nextControls.query.trim()
     if (!nextQuery) {
       setError("Arama sorgusu boş olamaz.")
       return
     }
 
+    setQuery(nextControls.query)
+    setSourceNames(nextControls.sourceNames)
+    setDaire(nextControls.daire)
+    setYearFrom(nextControls.yearFrom)
+    setYearTo(nextControls.yearTo)
+    setTopDecisions(nextControls.topDecisions)
     setHasSearched(true)
     setIsPending(true)
     setError("")
+    syncUrl(nextControls)
 
     try {
       const response = await fetch(`${API_BASE_URL}/api/search`, {
@@ -71,11 +154,11 @@ export function SearchDemo() {
         },
         body: JSON.stringify({
           query: nextQuery,
-          source_names: sourceNames,
-          daire: daire.trim() || undefined,
-          year_from: yearFrom ? Number(yearFrom) : undefined,
-          year_to: yearTo ? Number(yearTo) : undefined,
-          top_decisions: Number(topDecisions),
+          source_names: nextControls.sourceNames,
+          daire: nextControls.daire.trim() || undefined,
+          year_from: nextControls.yearFrom ? Number(nextControls.yearFrom) : undefined,
+          year_to: nextControls.yearTo ? Number(nextControls.yearTo) : undefined,
+          top_decisions: Number(nextControls.topDecisions),
         }),
       })
 
@@ -266,6 +349,40 @@ export function SearchDemo() {
     setIsDarkMode(nextTheme)
   }, [])
 
+  useEffect(() => {
+    if (initialUrlAppliedRef.current) {
+      return
+    }
+
+    initialUrlAppliedRef.current = true
+
+    const params = new URLSearchParams(window.location.search)
+    const initialQuery = params.get("q")?.trim() ?? ""
+    if (!initialQuery) {
+      return
+    }
+
+    const initialSources = params
+      .get("sources")
+      ?.split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)
+
+    const initialControls: SearchControls = {
+      query: initialQuery,
+      sourceNames: initialSources?.length ? initialSources : ["yargitay"],
+      daire: params.get("daire") ?? "9. Hukuk Dairesi",
+      yearFrom: params.get("from") ?? "2020",
+      yearTo: params.get("to") ?? "2026",
+      topDecisions: params.get("top") ?? "5",
+    }
+
+    startTransition(() => {
+      void runSearch(initialControls)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   function toggleTheme() {
     const nextTheme = !isDarkMode
     const root = document.documentElement
@@ -297,15 +414,16 @@ export function SearchDemo() {
   const showLanding = !hasSearched && !isPending
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 pb-10 pt-8 sm:px-6 lg:px-8">
+      <AppHeader
+        isDarkMode={isDarkMode}
+        onToggleTheme={toggleTheme}
+        onGoHome={resetSearchState}
+      />
+      <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-6xl flex-col px-4 pb-10 pt-8 sm:px-6 lg:px-8">
         {showLanding ? (
           <main className="flex flex-1 items-center justify-center">
             <div className="flex w-full max-w-4xl flex-col gap-10">
-              <SearchHeader
-                isDarkMode={isDarkMode}
-                onToggleTheme={toggleTheme}
-                mode="landing"
-              />
+              <SearchHeader mode="landing" />
               <div className="mx-auto w-full max-w-3xl">
                 <SearchBar
                   query={query}
@@ -320,7 +438,7 @@ export function SearchDemo() {
           </main>
         ) : (
           <>
-            <SearchHeader isDarkMode={isDarkMode} onToggleTheme={toggleTheme} />
+            <SearchHeader mode="results" />
 
             <main className="flex flex-col gap-5">
               <SearchBar
