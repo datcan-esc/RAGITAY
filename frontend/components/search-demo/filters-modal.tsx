@@ -43,22 +43,22 @@ export function FiltersModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-end bg-black/10 p-4 sm:p-6">
-      <div className="w-full max-w-md rounded-[28px] border border-border bg-card shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-start justify-end bg-overlay p-4 sm:p-6">
+      <div className="w-full max-w-md rounded-[var(--radius-4xl)] border border-border bg-card shadow-2xl">
         <div className="flex items-center justify-between px-6 pb-3 pt-6">
           <div className="space-y-1">
             <h2 className="flex items-center gap-2 text-lg font-semibold">
               <Filter className="size-4" />
               Filtreler
             </h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
+            <p className="text-sm text-muted-foreground">
               Kaynak, daire ve tarih aralığını daralt.
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full border border-border p-2 text-muted-foreground transition hover:text-foreground"
+            className="rounded-full border border-border bg-card p-2 text-muted-foreground transition hover:bg-muted hover:text-foreground"
             aria-label="Filtreleri kapat"
           >
             <X className="size-4" />
@@ -78,7 +78,7 @@ export function FiltersModal({
                       "rounded-full border px-3 py-1.5 text-sm transition-colors",
                       active
                         ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-muted text-foreground"
+                        : "border-border bg-surface text-foreground hover:bg-muted"
                     )}
                   >
                     {option.label}

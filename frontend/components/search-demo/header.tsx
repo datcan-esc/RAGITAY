@@ -1,23 +1,43 @@
 import { Moon, Sun } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 export function SearchHeader({
   isDarkMode,
   onToggleTheme,
+  mode = "results",
 }: {
   isDarkMode: boolean
   onToggleTheme: () => void
+  mode?: "landing" | "results"
 }) {
+  const isLanding = mode === "landing"
+
   return (
-    <header className="mx-auto flex w-full max-w-4xl flex-col gap-4 pb-8">
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-2">
+    <header
+      className={cn(
+        "mx-auto flex w-full flex-col",
+        isLanding ? "max-w-3xl gap-6 text-center" : "max-w-6xl gap-4 pb-6",
+      )}
+    >
+      <div
+        className={cn(
+          "flex gap-4",
+          isLanding ? "items-start justify-end" : "items-start justify-between",
+        )}
+      >
+        <div className={cn("space-y-2", isLanding ? "w-full pr-10" : "")}>
           <p className="text-sm font-medium tracking-[0.18em] text-muted-foreground uppercase">
             RAGITAY
           </p>
-          <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
-            Emsal karar araması
+          <h1
+            className={cn(
+              "font-semibold tracking-tight",
+              isLanding ? "text-5xl sm:text-6xl" : "text-3xl sm:text-4xl",
+            )}
+          >
+            Emsal kararlarla konuşun
           </h1>
         </div>
         <Button
@@ -31,10 +51,11 @@ export function SearchHeader({
           {isDarkMode ? <Sun className="size-4" /> : <Moon className="size-4" />}
         </Button>
       </div>
-      <div className="max-w-2xl">
+      <div className={cn(isLanding ? "mx-auto max-w-2xl" : "max-w-2xl")}>
         <p className="text-base leading-7 text-muted-foreground">
-          Sorguyu yazın, filtreleri daraltın, ilgili kararı seçin ve tam metni
-          temiz bir okuma alanında inceleyin.
+          {isLanding
+            ? "Yargıtay ve UYAP kararlarını doğal dilde arayın, ilgili sonuçları görün ve seçtiğiniz kararın tam metnini inceleyin."
+            : "Arama sonuçlarını karşılaştırın, özeti okuyun ve seçtiğiniz kararın tam metnine geçin."}
         </p>
       </div>
     </header>

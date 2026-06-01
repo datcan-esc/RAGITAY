@@ -2,6 +2,7 @@
 
 import { startTransition, useEffect, useState } from "react"
 
+import { ActiveFilters } from "@/components/search-demo/active-filters"
 import { DetailPanel } from "@/components/search-demo/detail-panel"
 import { FiltersModal } from "@/components/search-demo/filters-modal"
 import { SearchHeader } from "@/components/search-demo/header"
@@ -9,7 +10,9 @@ import { ResultsList } from "@/components/search-demo/results-list"
 import { SearchBar } from "@/components/search-demo/search-bar"
 import { SummaryCard } from "@/components/search-demo/summary-card"
 import type {
+  DecisionChatResponse,
   DecisionDetail,
+  DecisionSummaryResponse,
   SearchError,
   SearchResponse,
   SummaryResponse,
@@ -41,6 +44,12 @@ export function SearchDemo() {
   const [detail, setDetail] = useState<DecisionDetail | null>(null)
   const [detailError, setDetailError] = useState("")
   const [detailPending, setDetailPending] = useState(false)
+  const [decisionSummary, setDecisionSummary] = useState<DecisionSummaryResponse | null>(null)
+  const [decisionSummaryPending, setDecisionSummaryPending] = useState(false)
+  const [decisionQuestion, setDecisionQuestion] = useState("")
+  const [decisionAnswer, setDecisionAnswer] = useState<DecisionChatResponse | null>(null)
+  const [decisionChatPending, setDecisionChatPending] = useState(false)
+  const [decisionChatError, setDecisionChatError] = useState("")
   const [isDarkMode, setIsDarkMode] = useState(false)
 
   async function runSearch(override?: Partial<{ query: string }>) {
@@ -78,6 +87,7 @@ export function SearchDemo() {
       const body = (await response.json()) as SearchResponse
       setData(body)
       setSummary(null)
+
       if (body.results.length) {
         void runSummary(body)
       }
@@ -86,6 +96,11 @@ export function SearchDemo() {
       setActiveDecisionId(firstDecisionId)
       setDetail(null)
       setDetailError("")
+      setDecisionSummary(null)
+      setDecisionAnswer(null)
+      setDecisionChatError("")
+      setDecisionQuestion("")
+
       if (firstDecisionId) {
         void loadDecisionDetail(firstDecisionId)
       }
@@ -147,6 +162,10 @@ export function SearchDemo() {
     setActiveDecisionId(decisionId)
     setDetailPending(true)
     setDetailError("")
+    setDecisionSummary(null)
+    setDecisionAnswer(null)
+    setDecisionChatError("")
+    setDecisionQuestion("")
 
     try {
       const response = await fetch(`${API_BASE_URL}/api/search/decisions/${decisionId}`)
@@ -164,6 +183,74 @@ export function SearchDemo() {
       setDetailError(message)
     } finally {
       setDetailPending(false)
+    }
+  }
+
+  async function generateDecisionSummary() {
+    if (!activeDecisionId || query.trim().length < 2) {
+      return
+    }
+
+    setDecisionSummaryPending(true)
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/search/decisions/${activeDecisionId}/summary`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          query: query.trim(),
+        }),
+      })
+
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as SearchError
+        throw new Error(body.detail || "Karar özeti üretilemedi.")
+      }
+
+      const body = (await response.json()) as DecisionSummaryResponse
+      setDecisionSummary(body)
+    } catch {
+      setDecisionSummary(null)
+    } finally {
+      setDecisionSummaryPending(false)
+    }
+  }
+
+  async function askDecisionQuestion() {
+    if (!activeDecisionId || decisionQuestion.trim().length < 3) {
+      return
+    }
+
+    setDecisionChatPending(true)
+    setDecisionChatError("")
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/search/decisions/${activeDecisionId}/ask`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          question: decisionQuestion.trim(),
+        }),
+      })
+
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as SearchError
+        throw new Error(body.detail || "Karar sorusu cevaplanamadı.")
+      }
+
+      const body = (await response.json()) as DecisionChatResponse
+      setDecisionAnswer(body)
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Karar sorusu cevaplanamadı."
+      setDecisionChatError(message)
+      setDecisionAnswer(null)
+    } finally {
+      setDecisionChatPending(false)
     }
   }
 
@@ -207,49 +294,65 @@ export function SearchDemo() {
     })
   }
 
+  const showLanding = !hasSearched && !isPending
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto flex w-full max-w-6xl flex-col px-4 pb-10 pt-8 sm:px-6 lg:px-8">
-        <SearchHeader isDarkMode={isDarkMode} onToggleTheme={toggleTheme} />
-
-        <main className="flex flex-col gap-5">
-          <SearchBar
-            query={query}
-            isPending={isPending}
-            onQueryChange={setQuery}
-            onOpenFilters={() => setFiltersOpen(true)}
-            onSubmit={handleSubmit}
-          />
-
-          {!hasSearched && !isPending ? (
-            <section className="mx-auto flex min-h-[46vh] w-full max-w-3xl items-center justify-center">
-              <div className="space-y-4 text-center">
-                <h2 className="text-2xl font-semibold tracking-tight text-foreground">
-                  Yargıtay ve UYAP kararlarında arama yapın
-                </h2>
-                <p className="mx-auto max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
-                  Hukuki bir konu, karar türü veya olay örgüsü yazın. Sistem ilgili
-                  kararları listeleyip detaylarını incelemenize yardımcı olur.
-                </p>
+      <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 pb-10 pt-8 sm:px-6 lg:px-8">
+        {showLanding ? (
+          <main className="flex flex-1 items-center justify-center">
+            <div className="flex w-full max-w-4xl flex-col gap-10">
+              <SearchHeader
+                isDarkMode={isDarkMode}
+                onToggleTheme={toggleTheme}
+                mode="landing"
+              />
+              <div className="mx-auto w-full max-w-3xl">
+                <SearchBar
+                  query={query}
+                  isPending={isPending}
+                  onQueryChange={setQuery}
+                  onOpenFilters={() => setFiltersOpen(true)}
+                  onSubmit={handleSubmit}
+                  mode="landing"
+                />
               </div>
-            </section>
-          ) : null}
+            </div>
+          </main>
+        ) : (
+          <>
+            <SearchHeader isDarkMode={isDarkMode} onToggleTheme={toggleTheme} />
 
-          {error ? (
-            <section className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
-              {error}
-            </section>
-          ) : null}
+            <main className="flex flex-col gap-5">
+              <SearchBar
+                query={query}
+                isPending={isPending}
+                onQueryChange={setQuery}
+                onOpenFilters={() => setFiltersOpen(true)}
+                onSubmit={handleSubmit}
+              />
+              <ActiveFilters
+                sourceLabels={SOURCE_OPTIONS.filter((option) => sourceNames.includes(option.id)).map(
+                  (option) => option.label
+                )}
+                daire={daire}
+                yearFrom={yearFrom}
+                yearTo={yearTo}
+                topDecisions={topDecisions}
+              />
 
-          {hasSearched || isPending ? (
-            <section className="grid gap-5 lg:grid-cols-[minmax(0,0.95fr)_minmax(340px,0.85fr)]">
-              <div className="space-y-4">
+              {error ? (
+                <section className="rounded-[var(--radius-2xl)] border border-destructive bg-destructive-soft px-4 py-3 text-sm text-destructive">
+                  {error}
+                </section>
+              ) : null}
+
               <SummaryCard
                 isPending={isPending || summaryPending}
                 summary={summary}
                 resultCount={data?.results.length ?? 0}
               />
 
+              <section className="grid gap-5 lg:grid-cols-[minmax(0,0.78fr)_minmax(420px,1.02fr)]">
                 <div className="space-y-3">
                   <ResultsList
                     isPending={isPending}
@@ -258,16 +361,35 @@ export function SearchDemo() {
                     onSelect={(decisionId) => void loadDecisionDetail(decisionId)}
                   />
                 </div>
-              </div>
 
-              <DetailPanel
-                detail={detail}
-                detailError={detailError}
-                detailPending={detailPending}
-              />
-            </section>
-          ) : null}
-        </main>
+        <DetailPanel
+          key={activeDecisionId ?? "empty-detail"}
+          detail={detail}
+          detailError={detailError}
+          detailPending={detailPending}
+                  decisionSummary={decisionSummary?.decision_summary ?? null}
+                  decisionSummaryPending={decisionSummaryPending}
+                  highlightTerms={[query, decisionQuestion]}
+                  chatQuestion={decisionQuestion}
+                  chatAnswer={decisionAnswer}
+                  chatPending={decisionChatPending}
+                  chatError={decisionChatError}
+                  onChatQuestionChange={setDecisionQuestion}
+                  onChatSubmit={() => {
+                    startTransition(() => {
+                      void askDecisionQuestion()
+                    })
+                  }}
+                  onDecisionSummaryGenerate={() => {
+                    startTransition(() => {
+                      void generateDecisionSummary()
+                    })
+                  }}
+                />
+              </section>
+            </main>
+          </>
+        )}
       </div>
 
       <FiltersModal

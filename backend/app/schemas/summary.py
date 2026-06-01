@@ -24,6 +24,10 @@ class SummaryRequest(BaseModel):
     results: list[SummaryDecisionInput] = Field(default_factory=list)
 
 
+class DecisionSummaryRequest(BaseModel):
+    query: str = Field(..., min_length=2)
+
+
 class DecisionMiniSummary(BaseModel):
     decision_id: int
     reference: str
@@ -35,7 +39,14 @@ class SummaryResponse(BaseModel):
     query: str
     general_summary: str
     key_points: list[str]
-    decision_summaries: list[DecisionMiniSummary]
+    provider: str
+    model: str
+    fallback_used: bool = False
+
+
+class DecisionSummaryResponse(BaseModel):
+    query: str
+    decision_summary: DecisionMiniSummary
     provider: str
     model: str
     fallback_used: bool = False

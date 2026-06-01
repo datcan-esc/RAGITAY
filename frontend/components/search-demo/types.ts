@@ -51,7 +51,14 @@ export type SummaryResponse = {
   query: string
   general_summary: string
   key_points: string[]
-  decision_summaries: DecisionMiniSummary[]
+  provider: string
+  model: string
+  fallback_used: boolean
+}
+
+export type DecisionSummaryResponse = {
+  query: string
+  decision_summary: DecisionMiniSummary
   provider: string
   model: string
   fallback_used: boolean
@@ -71,6 +78,16 @@ export type DecisionDetail = {
   source_url: string
   full_text: string
   sections: Record<string, string>
+}
+
+export type DecisionChatResponse = {
+  decision_id: number
+  reference: string
+  answer: string
+  key_points: string[]
+  provider: string
+  model: string
+  fallback_used: boolean
 }
 
 export type SearchError = {

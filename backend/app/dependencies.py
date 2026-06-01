@@ -3,6 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 from backend.app.repositories.search_repository import SearchRepository
+from backend.app.services.decision_chat_service import DecisionChatService
 from backend.app.services.embedding_service import EmbeddingService
 from backend.app.services.search_service import SearchService
 from backend.app.services.summary_service import SummaryService
@@ -28,4 +29,9 @@ def get_search_service() -> SearchService:
 
 @lru_cache(maxsize=1)
 def get_summary_service() -> SummaryService:
-    return SummaryService()
+    return SummaryService(repository=get_search_repository())
+
+
+@lru_cache(maxsize=1)
+def get_decision_chat_service() -> DecisionChatService:
+    return DecisionChatService(repository=get_search_repository())

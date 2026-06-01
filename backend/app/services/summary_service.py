@@ -12,12 +12,17 @@ except ImportError:  # pragma: no cover - optional dependency
 
 from backend.app.config import get_settings
 from backend.app.exceptions import AppError
+from backend.app.repositories.search_repository import SearchRepository
 from backend.app.schemas.summary import (
     DecisionMiniSummary,
+    DecisionSummaryRequest,
+    DecisionSummaryResponse,
     SummaryDecisionInput,
+    SummaryPassageInput,
     SummaryRequest,
     SummaryResponse,
 )
+
 
 class SummaryError(AppError):
     def __init__(self, message: str, code: str = "summary_error", status_code: int = 400) -> None:
@@ -25,8 +30,9 @@ class SummaryError(AppError):
 
 
 class SummaryService:
-    def __init__(self) -> None:
+    def __init__(self, repository: Optional[SearchRepository] = None) -> None:
         self.settings = get_settings()
+        self.repository = repository or SearchRepository()
         self.openai_client: Optional[Any] = None
         if self.settings.openai_api_key and OpenAI is not None:
             client_kwargs: dict[str, Any] = {"api_key": self.settings.openai_api_key}
@@ -54,44 +60,112 @@ class SummaryService:
 
         return self._fallback_summary(cleaned_query, trimmed_results)
 
-    def _openai_summary(
+    def summarize_decision(
         self,
-        query: str,
-        results: list[SummaryDecisionInput],
-    ) -> SummaryResponse:
-        compact_results = []
-        for result in results:
-            compact_results.append(
-                {
-                    "decision_id": result.decision_id,
-                    "reference": self._reference(result),
-                    "title": result.title,
-                    "outcome": result.outcome,
-                    "passages": [
-                        {
-                            "section_name": passage.section_name,
-                            "chunk_text": passage.chunk_text[: self.settings.summary_max_passage_chars],
-                        }
-                        for passage in result.passages[:2]
-                    ],
-                }
+        decision_id: int,
+        request: DecisionSummaryRequest,
+    ) -> DecisionSummaryResponse:
+        cleaned_query = " ".join(request.query.split())
+        detail = self.repository.get_decision_detail(decision_id)
+        if not detail:
+            raise SummaryError(
+                "Requested decision could not be found.",
+                code="decision_not_found",
+                status_code=404,
             )
 
+        decision_input = SummaryDecisionInput(
+            decision_id=int(detail["decision_id"]),
+            title=str(detail.get("title", "")),
+            daire=str(detail.get("daire", "")),
+            esas_no=str(detail.get("esas_no", "")),
+            karar_no=str(detail.get("karar_no", "")),
+            karar_tarihi=str(detail.get("karar_tarihi", "") or ""),
+            outcome=str(detail.get("outcome", "") or ""),
+            passages=self._decision_passages_from_detail(detail),
+        )
+
+        provider = self.settings.summary_provider
+        try:
+            if provider == "openai" and self.openai_client:
+                return self._openai_decision_summary(cleaned_query, decision_input)
+            if provider == "gemini" and self.settings.gemini_api_key:
+                return self._gemini_decision_summary(cleaned_query, decision_input)
+        except Exception:
+            return self._fallback_decision_summary(cleaned_query, decision_input)
+
+        return self._fallback_decision_summary(cleaned_query, decision_input)
+
+    def _openai_summary(self, query: str, results: list[SummaryDecisionInput]) -> SummaryResponse:
+        compact_results = [self._compact_result(result) for result in results]
         system_prompt = (
             "You are a legal retrieval summarizer for Turkish court decisions. "
             "Only use the provided decisions and passages. Do not invent facts, legal rules, or references. "
-            "Return strict JSON with keys: general_summary, key_points, decision_summaries. "
+            "Return strict JSON with keys: general_summary, key_points. "
             "general_summary must be 2-3 sentences in Turkish. "
-            "key_points must contain 2-4 concise bullet-style strings in Turkish. "
-            "decision_summaries must be an array where each item has decision_id, reference, short_summary, why_relevant. "
-            "short_summary should be 1 short paragraph in Turkish. "
-            "why_relevant should explain in one sentence why that decision is relevant to the user's query."
+            "key_points must contain 2-4 concise bullet-style strings in Turkish."
+        )
+        user_prompt = json.dumps({"query": query, "results": compact_results}, ensure_ascii=False)
+
+        response = self.openai_client.responses.create(
+            model=self.settings.summary_model_name,
+            input=[
+                {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
+                {"role": "user", "content": [{"type": "input_text", "text": user_prompt}]},
+            ],
+        )
+        parsed = self._parse_json(response.output_text)
+        return self._build_summary_response(query, parsed, "openai", self.settings.summary_model_name, False)
+
+    def _gemini_summary(self, query: str, results: list[SummaryDecisionInput]) -> SummaryResponse:
+        compact_results = [self._compact_result(result) for result in results]
+        prompt = (
+            "Yalnızca verilen kararlar ve pasajlar üzerinden özet üret. "
+            "Hiçbir bilgi uydurma. Çıktıyı strict JSON olarak ver. "
+            "Anahtarlar: general_summary, key_points. "
+            "general_summary: Türkçe 2-3 cümle. "
+            "key_points: 2-4 kısa Türkçe madde.\n\n"
+            f"Query: {query}\n"
+            f"Results: {json.dumps(compact_results, ensure_ascii=False)}"
+        )
+        parsed = self._call_gemini(prompt)
+        return self._build_summary_response(query, parsed, "gemini", self.settings.summary_model_name, False)
+
+    def _fallback_summary(self, query: str, results: list[SummaryDecisionInput]) -> SummaryResponse:
+        snippets: list[str] = []
+        for result in results:
+            first_passage = result.passages[0].chunk_text if result.passages else result.title
+            snippets.append(self._shorten(first_passage, 260))
+
+        general_summary = " ".join(snippet for snippet in snippets[:2] if snippet).strip()
+        if not general_summary:
+            general_summary = "Bulunan kararlar sorguyla ilişkili benzer uyuşmazlıkları ve ilgili hukuki değerlendirmeleri göstermektedir."
+
+        return SummaryResponse(
+            query=query,
+            general_summary=general_summary,
+            key_points=[self._shorten(snippet, 180) for snippet in snippets[:3] if snippet],
+            provider="fallback",
+            model="extractive-summary",
+            fallback_used=True,
         )
 
+    def _openai_decision_summary(
+        self,
+        query: str,
+        decision: SummaryDecisionInput,
+    ) -> DecisionSummaryResponse:
+        system_prompt = (
+            "You are a Turkish legal decision summarizer. "
+            "Use only the provided decision and passages. "
+            "Return strict JSON with keys: short_summary, why_relevant. "
+            "short_summary should be a concise Turkish paragraph. "
+            "why_relevant should be one Turkish sentence that relates the decision to the user's query."
+        )
         user_prompt = json.dumps(
             {
                 "query": query,
-                "results": compact_results,
+                "decision": self._compact_result(decision, passages_limit=3),
             },
             ensure_ascii=False,
         )
@@ -103,58 +177,64 @@ class SummaryService:
                 {"role": "user", "content": [{"type": "input_text", "text": user_prompt}]},
             ],
         )
-
-        parsed = self._parse_summary_json(response.output_text)
-        return self._build_summary_response(
+        parsed = self._parse_json(response.output_text)
+        return self._build_decision_summary_response(
             query=query,
+            decision=decision,
             parsed=parsed,
             provider="openai",
             model=self.settings.summary_model_name,
             fallback_used=False,
         )
 
-    def _gemini_summary(
+    def _gemini_decision_summary(
         self,
         query: str,
-        results: list[SummaryDecisionInput],
-    ) -> SummaryResponse:
-        compact_results = []
-        for result in results:
-            compact_results.append(
-                {
-                    "decision_id": result.decision_id,
-                    "reference": self._reference(result),
-                    "title": result.title,
-                    "outcome": result.outcome,
-                    "passages": [
-                        {
-                            "section_name": passage.section_name,
-                            "chunk_text": passage.chunk_text[: self.settings.summary_max_passage_chars],
-                        }
-                        for passage in result.passages[:2]
-                    ],
-                }
-            )
-
+        decision: SummaryDecisionInput,
+    ) -> DecisionSummaryResponse:
         prompt = (
-            "Yalnızca verilen kararlar ve pasajlar üzerinden özet üret. "
-            "Hiçbir bilgi uydurma. Çıktıyı strict JSON olarak ver. "
-            "Anahtarlar: general_summary, key_points, decision_summaries. "
-            "general_summary: Türkçe 2-3 cümle. "
-            "key_points: 2-4 kısa Türkçe madde. "
-            "decision_summaries: her karar için decision_id, reference, short_summary, why_relevant. "
-            "short_summary kısa bir paragraf olsun. why_relevant tek cümle olsun.\n\n"
+            "Sadece verilen karar ve pasajlar üzerinden özet üret. "
+            "Bilgi uydurma. Çıktıyı strict JSON ver. "
+            "Anahtarlar: short_summary, why_relevant. "
+            "short_summary kısa bir Türkçe paragraf olsun. "
+            "why_relevant, kararın sorguyla neden ilgili olduğunu tek cümleyle anlatsın.\n\n"
             f"Query: {query}\n"
-            f"Results: {json.dumps(compact_results, ensure_ascii=False)}"
+            f"Decision: {json.dumps(self._compact_result(decision, passages_limit=3), ensure_ascii=False)}"
+        )
+        parsed = self._call_gemini(prompt)
+        return self._build_decision_summary_response(
+            query=query,
+            decision=decision,
+            parsed=parsed,
+            provider="gemini",
+            model=self.settings.summary_model_name,
+            fallback_used=False,
         )
 
+    def _fallback_decision_summary(
+        self,
+        query: str,
+        decision: SummaryDecisionInput,
+    ) -> DecisionSummaryResponse:
+        first_passage = decision.passages[0].chunk_text if decision.passages else decision.title
+        return DecisionSummaryResponse(
+            query=query,
+            decision_summary=DecisionMiniSummary(
+                decision_id=decision.decision_id,
+                reference=self._reference(decision),
+                short_summary=self._shorten(first_passage, 320),
+                why_relevant=self._why_relevant(query, decision),
+            ),
+            provider="fallback",
+            model="extractive-decision-summary",
+            fallback_used=True,
+        )
+
+    def _call_gemini(self, prompt: str) -> dict[str, Any]:
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "responseMimeType": "application/json",
-            },
+            "generationConfig": {"responseMimeType": "application/json"},
         }
-
         endpoint = (
             f"{self.settings.gemini_base_url.rstrip('/')}/v1beta/models/"
             f"{self.settings.summary_model_name}:generateContent?key={self.settings.gemini_api_key}"
@@ -172,56 +252,39 @@ class SummaryService:
         except (HTTPError, URLError) as exc:
             raise SummaryError("Gemini summary request failed.", code="gemini_request_failed", status_code=502) from exc
 
-        response_json = json.loads(raw)
-        text = self._extract_gemini_text(response_json)
-        parsed = self._parse_summary_json(text)
-        return self._build_summary_response(
-            query=query,
-            parsed=parsed,
-            provider="gemini",
-            model=self.settings.summary_model_name,
-            fallback_used=False,
-        )
+        payload_json = json.loads(raw)
+        text = self._extract_gemini_text(payload_json)
+        return self._parse_json(text)
 
-    def _fallback_summary(
-        self,
-        query: str,
-        results: list[SummaryDecisionInput],
-    ) -> SummaryResponse:
-        decision_summaries: list[DecisionMiniSummary] = []
-        key_points: list[str] = []
+    def _decision_passages_from_detail(self, detail: dict[str, object]) -> list[SummaryPassageInput]:
+        sections = detail.get("sections")
+        passages: list[SummaryPassageInput] = []
+        if isinstance(sections, dict):
+            for section_name, section_text in sections.items():
+                if isinstance(section_text, str) and section_text.strip():
+                    passages.append(SummaryPassageInput(section_name=str(section_name), chunk_text=section_text))
+        if passages:
+            return passages[:4]
 
-        for result in results:
-            first_passage = result.passages[0].chunk_text if result.passages else ""
-            short_summary = self._shorten(first_passage, 260)
-            if not short_summary:
-                short_summary = result.title
+        full_text = str(detail.get("full_text", "")).strip()
+        if not full_text:
+            return []
+        return [SummaryPassageInput(section_name="full_text", chunk_text=full_text)]
 
-            why_relevant = self._why_relevant(query, result)
-            decision_summaries.append(
-                DecisionMiniSummary(
-                    decision_id=result.decision_id,
-                    reference=self._reference(result),
-                    short_summary=short_summary,
-                    why_relevant=why_relevant,
-                )
-            )
-            if short_summary:
-                key_points.append(short_summary)
-
-        general_summary = " ".join(item.short_summary for item in decision_summaries[:2]).strip()
-        if not general_summary:
-            general_summary = "Bulunan kararlar sorguyla ilişkili benzer uyuşmazlıkları ve ilgili hukuki değerlendirmeleri göstermektedir."
-
-        return SummaryResponse(
-            query=query,
-            general_summary=general_summary,
-            key_points=[self._shorten(point, 180) for point in key_points[:3]],
-            decision_summaries=decision_summaries,
-            provider="fallback",
-            model="extractive-summary",
-            fallback_used=True,
-        )
+    def _compact_result(self, result: SummaryDecisionInput, passages_limit: int = 2) -> dict[str, Any]:
+        return {
+            "decision_id": result.decision_id,
+            "reference": self._reference(result),
+            "title": result.title,
+            "outcome": result.outcome,
+            "passages": [
+                {
+                    "section_name": passage.section_name,
+                    "chunk_text": passage.chunk_text[: self.settings.summary_max_passage_chars],
+                }
+                for passage in result.passages[:passages_limit]
+            ],
+        }
 
     @staticmethod
     def _reference(result: SummaryDecisionInput) -> str:
@@ -232,7 +295,6 @@ class SummaryService:
         candidates = payload.get("candidates", [])
         if not candidates:
             raise SummaryError("Gemini returned no candidates.", code="gemini_empty_response", status_code=502)
-
         parts = candidates[0].get("content", {}).get("parts", [])
         texts = [str(part.get("text", "")) for part in parts if str(part.get("text", "")).strip()]
         if not texts:
@@ -240,7 +302,7 @@ class SummaryService:
         return "\n".join(texts)
 
     @staticmethod
-    def _parse_summary_json(raw_text: str) -> dict[str, Any]:
+    def _parse_json(raw_text: str) -> dict[str, Any]:
         cleaned = raw_text.strip()
         if cleaned.startswith("```"):
             cleaned = cleaned.strip("`")
@@ -250,21 +312,39 @@ class SummaryService:
 
     @staticmethod
     def _build_summary_response(
-        *,
         query: str,
         parsed: dict[str, Any],
         provider: str,
         model: str,
         fallback_used: bool,
     ) -> SummaryResponse:
-        decision_summaries = [
-            DecisionMiniSummary(**item) for item in parsed.get("decision_summaries", [])
-        ]
         return SummaryResponse(
             query=query,
             general_summary=str(parsed.get("general_summary", "")).strip(),
             key_points=[str(item).strip() for item in parsed.get("key_points", []) if str(item).strip()],
-            decision_summaries=decision_summaries,
+            provider=provider,
+            model=model,
+            fallback_used=fallback_used,
+        )
+
+    def _build_decision_summary_response(
+        self,
+        *,
+        query: str,
+        decision: SummaryDecisionInput,
+        parsed: dict[str, Any],
+        provider: str,
+        model: str,
+        fallback_used: bool,
+    ) -> DecisionSummaryResponse:
+        return DecisionSummaryResponse(
+            query=query,
+            decision_summary=DecisionMiniSummary(
+                decision_id=decision.decision_id,
+                reference=self._reference(decision),
+                short_summary=str(parsed.get("short_summary", "")).strip(),
+                why_relevant=str(parsed.get("why_relevant", "")).strip(),
+            ),
             provider=provider,
             model=model,
             fallback_used=fallback_used,
