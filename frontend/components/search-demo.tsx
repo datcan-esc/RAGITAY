@@ -487,7 +487,6 @@ export function SearchDemo() {
           detailPending={detailPending}
                   decisionSummary={decisionSummary?.decision_summary ?? null}
                   decisionSummaryPending={decisionSummaryPending}
-                  highlightTerms={[query, decisionQuestion]}
                   chatQuestion={decisionQuestion}
                   chatAnswer={decisionAnswer}
                   chatPending={decisionChatPending}

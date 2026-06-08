@@ -1,5 +1,6 @@
 __pycache__/
 .venv/
 .env
+.DS_Store
 ingestion/output/
 ingestion/state/*.txt

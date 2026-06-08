@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils"
 
 import { ResultListSkeleton } from "./skeletons"
 import type { SearchResult } from "./types"
-import { formatSectionName } from "./utils"
+import { clampPercentage, formatSectionName } from "./utils"
 
 export function ResultsList({
   isPending,
@@ -39,55 +39,61 @@ export function ResultsList({
 
   return (
     <>
-      {results.map((result) => (
-        <button
-          key={`${result.source_name}-${result.external_id}`}
-          type="button"
-          onClick={() => onSelect(result.decision_id)}
-          className={cn(
-            "w-full rounded-[var(--radius-2xl)] border bg-card p-5 text-left transition shadow-sm hover:-translate-y-0.5 hover:border-border hover:bg-surface hover:shadow-md",
-            activeDecisionId === result.decision_id
-              ? "border-primary bg-accent shadow-md ring-1 ring-border"
-              : "border-border"
-          )}
-        >
-          <div className="space-y-3">
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                {result.outcome ? (
-                  <Badge variant="secondary" className="rounded-full">
-                    {result.outcome}
-                  </Badge>
-                ) : (
-                  <Badge variant="outline" className="rounded-full">
-                    Karar
-                  </Badge>
-                )}
-                <span className="text-sm text-muted-foreground">
-                  {result.karar_tarihi || "-"}
-                </span>
+      {results.map((result) => {
+        const primaryPassage =
+          result.passages[0]?.chunk_text ||
+          "Bu karar için öne çıkan pasaj bulunamadı."
+        const similarity = clampPercentage(result.score * 100)
+
+        return (
+          <button
+            key={`${result.source_name}-${result.external_id}`}
+            type="button"
+            onClick={() => onSelect(result.decision_id)}
+            className={cn(
+              "w-full rounded-[var(--radius-2xl)] border bg-card p-5 text-left transition shadow-sm hover:-translate-y-0.5 hover:border-border hover:bg-surface hover:shadow-md",
+              activeDecisionId === result.decision_id
+                ? "border-primary bg-accent shadow-md ring-1 ring-border"
+                : "border-border"
+            )}
+          >
+            <div className="space-y-3">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {result.outcome ? (
+                      <Badge variant="secondary" className="rounded-full">
+                        {result.outcome}
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="rounded-full">
+                        Karar
+                      </Badge>
+                    )}
+                    <span className="text-sm text-muted-foreground">
+                      {result.karar_tarihi || "-"}
+                    </span>
+                  </div>
+                  <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
+                    {formatSectionName(result.passages[0]?.section_name || "metin")}
+                  </p>
                 </div>
-                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
-                  {formatSectionName(result.passages[0]?.section_name || "metin")}
-                </p>
+                <div className="shrink-0 text-right">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    %{similarity.toFixed(1)}
+                  </p>
+                </div>
               </div>
-              <div className="shrink-0 text-right">
-                <p className="text-xs font-medium text-muted-foreground">
-                  %{(result.score * 100).toFixed(1)}
-                </p>
-              </div>
+              <h3 className="text-base font-semibold leading-7 text-foreground">
+                {result.title}
+              </h3>
+              <p className="line-clamp-3 text-sm leading-7 text-foreground">
+                {primaryPassage}
+              </p>
             </div>
-            <h3 className="text-base font-semibold leading-7 text-foreground">
-              {result.title}
-            </h3>
-            <p className="line-clamp-3 text-sm leading-7 text-foreground">
-              {result.passages[0]?.chunk_text ||
-                "Bu karar için öne çıkan pasaj bulunamadı."}
-            </p>
-          </div>
-        </button>
-      ))}
+          </button>
+        )
+      })}
     </>
   )
 }

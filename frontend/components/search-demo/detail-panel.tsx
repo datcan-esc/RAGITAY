@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { Search } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -8,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 
 import { DecisionChatPanel } from "./decision-chat-panel"
@@ -41,7 +43,7 @@ function buildHighlightedHtml(text: string, terms: string[]) {
   }
 
   const pattern = new RegExp(`(${uniqueTerms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi")
-  return escapeHtml(text).replace(pattern, '<mark class="rounded bg-accent px-0.5 text-accent-foreground">$1</mark>')
+  return escapeHtml(text).replace(pattern, '<mark class="rounded bg-sidebar-primary px-0.5 text-sidebar">$1</mark>')
 }
 
 export function DetailPanel({
@@ -50,7 +52,6 @@ export function DetailPanel({
   detailPending,
   decisionSummary,
   decisionSummaryPending,
-  highlightTerms,
   chatQuestion,
   chatAnswer,
   chatPending,
@@ -64,7 +65,6 @@ export function DetailPanel({
   detailPending: boolean
   decisionSummary: DecisionMiniSummary | null
   decisionSummaryPending: boolean
-  highlightTerms: string[]
   chatQuestion: string
   chatAnswer: DecisionChatResponse | null
   chatPending: boolean
@@ -74,9 +74,10 @@ export function DetailPanel({
   onDecisionSummaryGenerate: () => void
 }) {
   const [activeView, setActiveView] = useState<"text" | "ai">("text")
+  const [documentSearch, setDocumentSearch] = useState("")
 
   const highlightedFullText = detail?.full_text
-    ? buildHighlightedHtml(detail.full_text, highlightTerms)
+    ? buildHighlightedHtml(detail.full_text, [documentSearch])
     : ""
 
   return (
@@ -148,9 +149,20 @@ export function DetailPanel({
               {activeView === "text" ? (
                 <>
                   <div className="border-b border-border px-4 py-3">
-                    <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                      Tam Metin
-                    </p>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                        Tam Metin
+                      </p>
+                      <div className="relative w-full sm:w-56">
+                        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          value={documentSearch}
+                          onChange={(event) => setDocumentSearch(event.target.value)}
+                          placeholder="Metinde ara"
+                          className="h-9 rounded-[var(--radius-xl)] pl-9 text-sm"
+                        />
+                      </div>
+                    </div>
                   </div>
                   <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-4">
                     <pre

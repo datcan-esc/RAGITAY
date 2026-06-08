@@ -277,4 +277,5 @@ class SearchService:
         overlap_bonus = overlap_value * 0.18
         lexical_penalty = -0.07 if lexical_score <= 0.001 else 0.0
         generic_penalty = -0.08 if section_name == "cevap" and overlap_value <= 0.01 else 0.0
-        return (semantic_score * 0.72) + (lexical_score * 0.22) + section_bonus + overlap_bonus + lexical_penalty + generic_penalty
+        raw_score = (semantic_score * 0.72) + (lexical_score * 0.22) + section_bonus + overlap_bonus + lexical_penalty + generic_penalty
+        return max(0.0, min(raw_score, 1.0))
