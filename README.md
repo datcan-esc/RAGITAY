@@ -1,105 +1,104 @@
 # RAGITAY
 
-RAGITAY is a Turkish legal RAG application for searching, reading, summarizing, and asking questions about judicial decisions. The system combines hybrid retrieval, vector search, structured legal metadata, and an LLM layer so users can work with legal documents through a simpler conversational interface.
+RAGITAY, yargı kararları üzerinde doğal dil ile arama yapmayı, ilgili kararları incelemeyi, kararlar hakkında kısa özetler üretmeyi ve seçilen karar üzerinden yapay zeka ile soru-cevap yapmayı sağlayan bir hukuki RAG uygulamasıdır.
 
-The project is designed around one core idea: users should not need to read every full decision before understanding whether a result is relevant. RAGITAY first finds the most relevant decisions and passages, then uses an LLM only on a narrow, reference-backed context.
+Projenin temel amacı, kullanıcının çok sayıda uzun karar metnini tek tek okumadan önce hangi kararların gerçekten işine yarayabileceğini hızlıca anlayabilmesidir. Sistem önce ilgili kararları ve pasajları bulur, ardından yapay zeka katmanını yalnızca daraltılmış ve referanslı bağlam üzerinde çalıştırır.
 
-## What It Does
+## Ne Yapar?
 
-- Searches legal decisions with natural language queries.
-- Combines semantic similarity and lexical matching for retrieval.
-- Stores decisions with structured metadata, sectioned text, and full text.
-- Splits decisions into searchable chunks and stores vector embeddings.
-- Shows relevant passages and similarity scores.
-- Produces a general AI summary for the search results.
-- Generates an AI summary for a selected decision only when requested.
-- Lets the user ask questions about one selected decision.
-- Keeps LLM context small to control cost and reduce unsupported answers.
+- Doğal dilde yazılan hukuki sorularla karar araması yapar.
+- Semantic search ve lexical search sonuçlarını birlikte kullanır.
+- Kararları yapılandırılmış metadata, bölüm bilgileri ve tam metin ile saklar.
+- Karar metinlerini küçük, aranabilir parçalara böler.
+- Her parça için embedding üretip `pgvector` üzerinde saklar.
+- Sonuçlarda ilgili pasajları ve benzerlik oranını gösterir.
+- Arama sonuçları için genel bir yapay zeka özeti üretir.
+- Seçilen karar için isteğe bağlı yapay zeka özeti üretir.
+- Kullanıcının seçilen karar hakkında soru sormasını sağlar.
+- Gereksiz LLM çağrılarını azaltmak için sadece ihtiyaç duyulan bağlamı modele gönderir.
 
-## System Overview
+## Sistem Akışı
 
 ```text
-User query
+Kullanıcı sorgusu
   -> Hybrid search
-  -> Relevant decision chunks
-  -> Grouped decision results
-  -> Optional general LLM summary
-  -> Selected decision detail
-  -> Optional decision-specific summary / QA
+  -> İlgili karar parçaları
+  -> Karar bazlı gruplanmış sonuçlar
+  -> Opsiyonel genel yapay zeka özeti
+  -> Seçilen karar detayı
+  -> Opsiyonel karar özeti / karar bazlı soru-cevap
 ```
 
-The retrieval layer and LLM layer are intentionally separate.
+Retrieval katmanı ile LLM katmanı ayrı tutulur.
 
-- Retrieval decides which decisions and passages are relevant.
-- The LLM explains only the selected or retrieved context.
-- Full-document chat is limited to the selected decision, not the entire corpus.
+- Retrieval katmanı hangi kararların ve pasajların ilgili olduğunu belirler.
+- LLM yalnızca bulunan veya seçilen bağlamı açıklar.
+- Karar hakkında soru-cevap akışı tüm veri setiyle değil, yalnızca seçilen karar ile çalışır.
 
-## Architecture
+## Mimari
 
 ```text
 frontend/
-  Next.js interface
-  Search screen, filters, result list, detail panel, AI helper
+  Next.js arayüzü
+  Arama ekranı, filtreler, sonuç listesi, karar detayı, AI yardım alanı
 
 backend/
-  FastAPI service
-  Hybrid search API, decision detail API, summary API, decision QA API
+  FastAPI servisi
+  Hybrid search API, karar detayı API, özet API, karar bazlı soru-cevap API
 
 infra/
-  PostgreSQL + pgvector schema
+  PostgreSQL + pgvector şeması
 
 ingestion/
-  Data normalization, database import, chunking, embedding utilities
+  Veri normalizasyonu, veritabanı import, chunking ve embedding yardımcıları
 
 docker-compose.yml
-  PostgreSQL, backend, frontend services
+  PostgreSQL, backend ve frontend servisleri
 ```
 
-## Data Model
+## Veri Modeli
 
-RAGITAY stores legal decisions in two main tables.
+RAGITAY kararları iki ana tablo üzerinde saklar.
 
 ### `decisions`
 
-Each row represents one legal decision.
+Her satır bir yargı kararını temsil eder.
 
-Important fields:
+Önemli alanlar:
 
-- `source_name`: source identifier, for example `yargitay` or `uyap_emsal`
-- `external_id`: original source document id
-- `daire`: chamber / court department
-- `esas_no`: case number
-- `karar_no`: decision number
-- `karar_tarihi`: decision date
-- `title`: display title
-- `mahkeme`: lower court or related court metadata
-- `outcome`: result such as `KABULÜNE`, `REDDİNE`, `BOZULMASINA`
-- `sections`: extracted document sections as JSONB
-- `full_text`: complete normalized decision text
-- `document_metadata`: additional normalized metadata as JSONB
+- `source_name`: karar kaynağı, örneğin `yargitay` veya `uyap_emsal`
+- `external_id`: kaynaktaki özgün karar id değeri
+- `daire`: daire bilgisi
+- `esas_no`: esas numarası
+- `karar_no`: karar numarası
+- `karar_tarihi`: karar tarihi
+- `title`: ekranda gösterilecek karar başlığı
+- `mahkeme`: mahkeme veya ilişkili yargı merci bilgisi
+- `outcome`: karar sonucu, örneğin `KABULÜNE`, `REDDİNE`, `BOZULMASINA`
+- `sections`: karar içindeki bölümlerin JSONB formatında saklanması
+- `full_text`: normalize edilmiş tam karar metni
+- `document_metadata`: ek metadata alanları
 
-The pair `(source_name, external_id)` is unique, so imports are repeatable.
+`source_name` ve `external_id` birlikte unique olarak tutulur. Bu sayede aynı karar tekrar işlense bile veritabanında duplicate kayıt oluşmaz.
 
 ### `decision_chunks`
 
-Each row represents a searchable section or text chunk from a decision.
+Her satır bir kararın aranabilir metin parçasını temsil eder.
 
-Important fields:
+Önemli alanlar:
 
-- `decision_id`: parent decision
-- `chunk_index`: chunk order inside the decision
-- `section_name`: source section such as `dava`, `gerekce`, `karar`
-- `chunk_text`: searchable passage text
-- `chunk_chars`: passage length
-- `embedding`: `VECTOR(768)` embedding for semantic search
+- `decision_id`: bağlı olduğu karar
+- `chunk_index`: karar içindeki parça sırası
+- `section_name`: parçanın ait olduğu bölüm, örneğin `dava`, `gerekce`, `karar`
+- `chunk_text`: aranabilir pasaj metni
+- `chunk_chars`: pasaj uzunluğu
+- `embedding`: semantic search için `VECTOR(768)` embedding alanı
 
-This structure lets the system search small, meaningful passages instead of entire decisions.
+Bu yapı sayesinde sistem tüm karar metnini tek parça halinde aramak yerine, daha anlamlı ve küçük pasajlar üzerinde arama yapar.
 
-## Normalized Decision Format
+## Normalize Karar Formatı
 
-The system expects decisions to be normalized into a JSON-like structure before database import.
-
-Example shape:
+Sistem, kararların veritabanına aktarılmadan önce aşağıdaki yapıya benzer normalize edilmiş bir formatta olmasını bekler.
 
 ```json
 {
@@ -122,47 +121,47 @@ Example shape:
 }
 ```
 
-The database import process stores this as a decision record, then the chunking process creates section-aware passages under `decision_chunks`.
+Bu kayıt önce `decisions` tablosuna yazılır. Ardından bölüm bilgileri ve tam metin üzerinden `decision_chunks` kayıtları oluşturulur.
 
-## Retrieval Flow
+## Retrieval Akışı
 
-Search uses a hybrid approach:
+Arama sistemi hybrid yapıdadır.
 
-- Semantic search: query embedding is compared against chunk embeddings with pgvector.
-- Lexical search: query text is matched against chunk text and decision title.
-- Section weighting: legally useful sections such as `gerekce`, `dava`, and `ilk_derece_mahkemesi_karari` are prioritized.
-- Low-information chunks are filtered out.
-- Results are grouped by decision and returned with the most relevant passages.
+- Semantic search: kullanıcı sorgusu embedding vektörüne çevrilir ve karar parçalarının embedding değerleriyle karşılaştırılır.
+- Lexical search: sorgu metni karar parçaları ve karar başlıkları üzerinde metinsel olarak eşleştirilir.
+- Bölüm ağırlıkları: `gerekce`, `dava`, `ilk_derece_mahkemesi_karari` gibi hukuken daha anlamlı bölümlere öncelik verilir.
+- Düşük bilgi taşıyan kısa veya jenerik parçalar sonuçlardan elenir.
+- Sonuçlar karar bazında gruplanır ve her karar için en ilgili pasajlar döndürülür.
 
-The visible similarity score is clamped to `0-100%` for user clarity.
+Kullanıcıya gösterilen benzerlik oranı `0-100%` aralığında sınırlandırılır.
 
-## LLM Flow
+## Yapay Zeka Akışı
 
-RAGITAY avoids sending large result sets to an LLM.
+RAGITAY tüm veri setini veya çok büyük karar listelerini doğrudan LLM'e göndermez.
 
-Current LLM behavior:
+Mevcut davranış:
 
-- Search summary: produces a short general overview and key points from top results.
-- Decision summary: generated only when the user requests it for a selected decision.
-- Decision QA: answers only from the selected decision context.
+- Arama özeti: en iyi sonuçlardan kısa genel değerlendirme ve öne çıkan noktalar üretir.
+- Karar özeti: yalnızca kullanıcı seçilen karar için istediğinde üretilir.
+- Karar bazlı soru-cevap: yalnızca seçilen kararın bağlamını kullanır.
 
-Supported summary providers:
+Desteklenen sağlayıcılar:
 
 - `gemini`
 - `openai`
 - `fallback`
 
-If no LLM key is configured, the system continues with fallback summaries.
+LLM anahtarı tanımlı değilse sistem fallback özetlerle temel işlevini sürdürür.
 
 ## Backend API
 
-Default backend URL:
+Varsayılan backend adresi:
 
 ```text
 http://localhost:8000
 ```
 
-Useful endpoints:
+Önemli endpointler:
 
 - `GET /health`
 - `POST /api/search`
@@ -171,7 +170,7 @@ Useful endpoints:
 - `POST /api/search/decisions/{decision_id}/summary`
 - `POST /api/search/decisions/{decision_id}/ask`
 
-Example search request:
+Örnek arama isteği:
 
 ```bash
 curl -X POST http://localhost:8000/api/search \
@@ -188,46 +187,46 @@ curl -X POST http://localhost:8000/api/search \
 
 ## Frontend
 
-Default frontend URL:
+Varsayılan frontend adresi:
 
 ```text
 http://localhost:3000
 ```
 
-The interface includes:
+Arayüzde bulunan temel özellikler:
 
-- centered search-first entry screen
-- filter modal
-- URL-backed query state
-- general AI summary
-- minimal decision result list
-- decision detail panel
-- full-text search inside a selected decision
-- on-demand decision summary
-- selected-decision QA
-- light and dark theme support
+- sade arama giriş ekranı
+- filtre modalı
+- URL ile paylaşılabilir arama durumu
+- genel yapay zeka özeti
+- sade karar sonuç listesi
+- karar detayı paneli
+- seçilen karar içinde tam metin araması
+- isteğe bağlı karar özeti üretimi
+- seçilen karar hakkında soru-cevap
+- açık / koyu tema desteği
 
-## Running With Docker
+## Docker ile Çalıştırma
 
 ```bash
 docker compose up --build
 ```
 
-Services:
+Servisler:
 
-- `postgres`: PostgreSQL with pgvector
-- `backend`: FastAPI API server
-- `frontend`: Next.js UI
+- `postgres`: PostgreSQL + pgvector
+- `backend`: FastAPI API servisi
+- `frontend`: Next.js arayüzü
 
-Default ports:
+Varsayılan portlar:
 
 - frontend: `http://localhost:3000`
 - backend: `http://localhost:8000`
 - postgres: `localhost:5433`
 
-## Environment Variables
+## Ortam Değişkenleri
 
-Common variables:
+Sık kullanılan değişkenler:
 
 ```bash
 POSTGRES_DB=ragitay
@@ -243,7 +242,7 @@ NEXT_PUBLIC_SEARCH_API_BASE_URL=http://localhost:8000
 BACKEND_CORS_ALLOW_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 ```
 
-For local development without Docker:
+Docker kullanmadan lokal geliştirme için:
 
 ```bash
 source .venv/bin/activate
@@ -257,38 +256,38 @@ pnpm install
 pnpm dev
 ```
 
-## CORS Notes
+## CORS Notu
 
-The frontend runs in the browser, so its public API URL must point to the host-visible backend address.
+Frontend API çağrılarını tarayıcı üzerinden yaptığı için public API URL değeri tarayıcının erişebileceği backend adresini göstermelidir.
 
-For the default Docker setup:
+Varsayılan Docker kurulumu için:
 
 ```text
 NEXT_PUBLIC_SEARCH_API_BASE_URL=http://localhost:8000
 BACKEND_CORS_ALLOW_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 ```
 
-If ports or domains change, update both values together.
+Port veya domain değişirse bu iki değer birlikte güncellenmelidir.
 
-## Design Principles
+## Tasarım İlkeleri
 
-- Keep retrieval and generation separate.
-- Store decisions in structured, repeatable records.
-- Search chunks, not whole documents.
-- Send only compact, relevant context to the LLM.
-- Keep AI answers grounded in decision references.
-- Avoid unnecessary LLM calls for unopened results.
-- Preserve access to the full decision text for verification.
+- Retrieval ve generation katmanlarını ayrı tut.
+- Kararları yapılandırılmış, tekrar çalıştırılabilir kayıtlar olarak sakla.
+- Tüm karar metni yerine küçük ve anlamlı pasajlar üzerinde arama yap.
+- LLM'e yalnızca ilgili ve daraltılmış bağlam gönder.
+- Yapay zeka cevaplarını karar referanslarıyla sınırlı tut.
+- Kullanıcının açmadığı kararlar için gereksiz LLM çağrısı yapma.
+- Her zaman tam karar metnine erişim sağlayarak doğrulanabilirliği koru.
 
-## Project Status
+## Proje Durumu
 
-RAGITAY currently includes:
+RAGITAY şu anda şunları içerir:
 
-- PostgreSQL schema with pgvector
+- PostgreSQL + pgvector veritabanı şeması
 - hybrid legal search backend
-- LLM-backed summary and selected-decision QA
+- LLM destekli genel özet ve seçilen karar üzerinden soru-cevap
 - Next.js frontend
-- Docker Compose setup
-- light/dark theme support
+- Docker Compose kurulumu
+- açık / koyu tema desteği
 
-The next major improvements would be search performance indexing, richer decision-level citations, and evaluation datasets for retrieval quality.
+Sonraki önemli geliştirmeler arama performansı için vector index optimizasyonu, daha zengin karar içi referanslama ve retrieval kalitesini ölçmek için değerlendirme veri setleri olabilir.
