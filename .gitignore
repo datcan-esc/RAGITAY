@@ -1,6 +1,31 @@
-__pycache__/
-.venv/
-.env
+# OS / editor
 .DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Node / Next.js
+node_modules/
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env
+frontend/.env.*
+
+# Generated ingestion artifacts
 ingestion/output/
 ingestion/state/*.txt
+
+# Local reports and generated document artifacts
+Documents/
+
+# Planning / scratch files not needed by the app runtime
+RAG_PLAN.md
+scripts/
